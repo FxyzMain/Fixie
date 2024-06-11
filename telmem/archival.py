@@ -1,6 +1,9 @@
 import requests
 
-url = "http://localhost:8283/api/agents/c51b378e-7e87-40c4-987d-58fb4fcfee29/archival"
+user_api_key = "sk-16093c11bc2cdc229f41a324046ac0d8d76c9119896fb79e"
+agent_id = "dcf66285-16f2-4c60-a427-36c98d87c85e"
+
+url = f"http://localhost:8283/api/agents/{agent_id}/archival"
 
 string = """
 ƒxyz Network
@@ -581,7 +584,7 @@ payload = {
 headers = {
     "accept": "application/json",
     "content-type": "application/json",
-    "authorization": "Bearer ilovellms"
+    "authorization": f"Bearer {user_api_key}"
 }
 
 response = requests.post(url, json=payload, headers=headers)

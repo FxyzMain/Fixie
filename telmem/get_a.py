@@ -1,20 +1,15 @@
 import requests
 
-url = "http://localhost:8283/api/agents/c51b378e-7e87-40c4-987d-58fb4fcfee29/config"
+user_api_key = "sk-a770b8769f93ee4fcfe17d603705355b3cc85e942ddba747"
+agent_id = "7da0a161-264d-4af3-882c-530a2ec64d63"
+
+url = f"http://localhost:8283/api/agents/{agent_id}/archival/all"
 
 headers = {
     "accept": "application/json",
-    "authorization": "Bearer ilovellms"
+    "authorization": f"Bearer {user_api_key}"
 }
 
 response = requests.get(url, headers=headers)
 
-# Check if the request was successful
-if response.status_code == 200:
-    # Parse the JSON response
-    data = response.json()
-    
-    # Access the value of the "name" field and print it
-    print(data["agent_state"]["name"])
-else:
-    print("Error:", response.status_code)
+print(response.text)

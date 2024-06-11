@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 from db import save_user_api_key, save_user_agent_id, get_user_api_key, get_user_agent_id, get_memgpt_user_id, check_user_exists, save_source_id, get_source_id, save_memgpt_user_id_and_api_key
-from archival import string
+
 
 import os
 from dotenv import load_dotenv
@@ -51,6 +51,12 @@ async def create_memgpt_user(telegram_user_id: int):
 
             # Create and attach source to the agent
             source_id = await create_source(user_api_key, agent_id)
+
+            await upload_to_source(user_api_key, source_id)
+
+            await asyncio.sleep(35)
+
+            await attach_source(user_api_key, agent_id, source_id)
 
             await save_source_id(telegram_user_id, source_id)
 
@@ -187,16 +193,13 @@ async def create_source(user_api_key: str, agent_id: str):
     # Extract the id
     source_id = response_dict['id']
 
-    await upload_to_source(user_api_key, source_id)
-
-    await attach_source(user_api_key, agent_id, source_id)
 
     return source_id
 
 async def upload_to_source(user_api_key: str, source_id):
     url = f"http://localhost:8283/api/sources/{source_id}/upload"
 
-    files = { "file": ("fxyzWeb.txt", open("fxyzWeb.txt", "rb"), "text/plain") }
+    files = { "file": ("fxyzNetwork.pdf", open("fxyzNetwork.pdf", "rb"), "application/pdf") }
     headers = {
         "accept": "application/json",
         "authorization": f"Bearer {user_api_key}"
