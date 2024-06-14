@@ -70,6 +70,9 @@ def setup_agents_config_router(server: SyncServer, interface: QueuingInterface, 
         # get sources
         attached_sources = server.list_attached_sources(agent_id=agent_id)
 
+        # type error, convert to str
+        attached_sources_str = [str(source) for source in attached_sources]
+
         # configs
         llm_config = LLMConfigModel(**vars(agent_state.llm_config))
         embedding_config = EmbeddingConfigModel(**vars(agent_state.embedding_config))
@@ -89,7 +92,7 @@ def setup_agents_config_router(server: SyncServer, interface: QueuingInterface, 
                 functions_schema=agent_state.state["functions"],  # TODO: this is very error prone, jsut lookup the preset instead
             ),
             last_run_at=None,  # TODO
-            sources=attached_sources,
+            sources=attached_sources_str,
         )
 
     @router.patch("/agents/{agent_id}/rename", tags=["agents"], response_model=GetAgentResponse)

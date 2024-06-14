@@ -1,11 +1,11 @@
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from memgpt import create_memgpt_user, create_agent, current_agent, delete_agent, change_agent, send_message_to_memgpt, check_user_exists, list_agents
+from memgpt import create_memgpt_user, create_agent, current_agent, delete_agent, change_agent, send_message_to_memgpt, check_user_exists, list_agents, delete_user_agent
 import logging
 import os
 from dotenv import load_dotenv
 import re
-from db import save_user_pseudonym, get_user_info, delete_user as db_delete_user
+from db import save_user_pseudonym, get_user_info
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -19,11 +19,12 @@ async def start(update: Update, context: CallbackContext):
     user_exists = await check_user_exists(user_id)
     
     if not user_exists:
-        await create_memgpt_user(user_id)
-        await context.bot.send_message(chat_id=chat_id, text="Welcome to ƒxyz Network! Please choose a pseudonym for your interactions within our network. This will be your unique identifier and help maintain your privacy.")
+        await context.bot.send_message(chat_id=chat_id, text="Welcome to ƒxyz Network! Please choose a pseudonym for your interactions within our network.")
         user_states[user_id] = 'awaiting_pseudonym'
     else:
         await context.bot.send_message(chat_id=chat_id, text="Welcome back! Your account is already set up.")
+
+        
 
 async def echo(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
@@ -34,8 +35,16 @@ async def echo(update: Update, context: CallbackContext):
         # Save the pseudonym to Supabase
         success = await save_user_pseudonym(user_id, message_text)
         if success:
+            sent_message = await context.bot.send_message(chat_id=chat_id, text="Please wait while your agent is being created...")
+            message_id = sent_message.message_id
+
+            await create_memgpt_user(user_id, message_text)
             user_states[user_id] = None  # Reset the state
-            await context.bot.send_message(chat_id=chat_id, text="Your agent has been created. You can now send messages to your new agent or use /menu to manage your agents.")
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="Your agent has been created. You can now send messages to your new agent or use /menu to manage your agents."
+            )
         else:
             await context.bot.send_message(chat_id=chat_id, text="There was an error saving your pseudonym. Please try again.")
     elif user_states.get(user_id) == 'awaiting_agent_name':
@@ -94,8 +103,8 @@ async def createagent(update: Update, context: CallbackContext):
 # Generic function to generate inline keyboard markup for a list of agents
 async def generate_agent_buttons(update: Update, context: CallbackContext, agents_info: str, prefix: str):
     try:
-        if agents_info.startswith("Num of agents"):
-            agent_names = re.findall(r'Agent Name: (\S+)', agents_info)
+        if agents_info.startswith("-------"):
+            agent_names = re.findall(r'Agent Name: ([^\n]+)', agents_info)
             if agent_names:
                 keyboard = [
                     [InlineKeyboardButton(agent, callback_data=f'{prefix}_{agent}') for agent in agent_names]
@@ -137,11 +146,11 @@ async def menu(update: Update, context: CallbackContext):
             InlineKeyboardButton("Current Agent", callback_data='current_agent')
         ],
         [
-            InlineKeyboardButton("Change Agent", callback_data='change_agent_buttons'),
-            InlineKeyboardButton("Create Agent", callback_data='createagent')
+            # InlineKeyboardButton("Change Agent", callback_data='change_agent_buttons'),
+            # InlineKeyboardButton("Create Agent", callback_data='createagent')
         ],
         [
-            InlineKeyboardButton("Delete Agent", callback_data='delete_agent_buttons'),
+            # InlineKeyboardButton("Delete Agent", callback_data='delete_agent_buttons'),
             InlineKeyboardButton("Check User", callback_data='check_user')
         ],
         [
@@ -164,8 +173,15 @@ async def button_click(update: Update, context: CallbackContext):
         user_states[user_id] = 'awaiting_agent_name'
         await context.bot.send_message(chat_id=chat_id, text="Please send the name for your new agent.")
     elif callback_data == 'list_agents':
+        sent_message = await context.bot.send_message(chat_id=chat_id, text="Please wait while your agents are gathered...")
+        message_id = sent_message.message_id
+
         response = await list_agents(user_id)
-        await context.bot.send_message(chat_id=chat_id, text=response)
+        await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=response
+            )
     elif callback_data == 'current_agent':
         response = await current_agent(user_id)
         await context.bot.send_message(chat_id=chat_id, text=response)
@@ -192,7 +208,7 @@ async def button_click(update: Update, context: CallbackContext):
         user_id = update.callback_query.from_user.id
         chat_id = update.callback_query.message.chat.id
         # Correctly call the delete_user function from db.py
-        success = await db_delete_user(user_id)
+        success = await delete_user_agent(user_id)
         if success:
             await context.bot.send_message(chat_id=chat_id, text="Your user profile has been successfully deleted.")
         else:
@@ -219,3 +235,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
