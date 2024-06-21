@@ -1,5 +1,4 @@
 import json
-import logging
 import uuid
 import warnings
 from abc import abstractmethod
@@ -37,16 +36,18 @@ from memgpt.data_types import (
 # TODO use custom interface
 from memgpt.interface import AgentInterface  # abstract
 from memgpt.interface import CLIInterface  # for printing to terminal
+from memgpt.log import get_logger
 from memgpt.metadata import MetadataStore
 from memgpt.models.pydantic_models import (
     DocumentModel,
+    HumanModel,
     PassageModel,
     PresetModel,
     SourceModel,
     ToolModel,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Server(object):
@@ -895,6 +896,21 @@ class SyncServer(LockingServer):
             "num_agents": len(agents_states),
             "agents": agents_states_dicts,
         }
+
+    def list_humans(self, user_id: uuid.UUID):
+        return self.ms.list_humans(user_id=user_id)
+
+    def get_human(self, name: str, user_id: uuid.UUID):
+        return self.ms.get_human(name=name, user_id=user_id)
+
+    def add_human(self, human: HumanModel):
+        return self.ms.add_human(human=human)
+
+    def update_human(self, human: HumanModel):
+        return self.ms.update_human(human=human)
+
+    def delete_human(self, name: str, user_id: uuid.UUID):
+        return self.ms.delete_human(name, user_id)
 
     def get_agent(self, user_id: uuid.UUID, agent_id: uuid.UUID):
         """Get the agent state"""
