@@ -2,10 +2,7 @@ import requests
 import json
 import asyncio
 import logging
-import random
-from db import save_user_api_key, save_user_agent_id, get_user_api_key, get_user_agent_id, get_memgpt_user_id, check_user_exists, save_source_id, get_source_id, save_memgpt_user_id_and_api_key
-
-
+from db import save_user_api_key, save_user_agent_id, get_user_agent_id, check_user_exists, save_source_id, get_source_id, save_memgpt_user_id_and_api_key, get_user_pseudonym, delete_user
 import os
 from dotenv import load_dotenv
 
@@ -14,91 +11,115 @@ load_dotenv()
 MEMGPT_ADMIN_API_KEY = os.getenv("MEMGPT_SERVER_PASS")
 
 # Helper function to make asynchronous HTTP requests
+import aiohttp
+
 async def async_request(method, url, **kwargs):
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, lambda: requests.request(method, url, **kwargs))
-    return response
+    async with aiohttp.ClientSession() as session:
+        async with session.request(method, url, **kwargs) as response:
+            return await response.text(), response.status
 
-async def create_memgpt_user(telegram_user_id: int):
+class Fixie:
+    def __init__(self, name, role, preset, data_sources):
+        self.name = name
+        self.role = role
+        self.preset = preset
+        self.data_sources = data_sources
 
-    # Proceed with MemGPT user and agent creation
-    response = await async_request('POST', 'http://localhost:8283/admin/users', headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}'})
-    if response.status_code == 200:
-        user_data = response.json()
-        user_api_key = user_data['api_key']
-        user_memgpt_id = user_data['user_id']  # Corrected from 'id' to 'user_id'
-        agent_response = await async_request(
-            'POST',
-            'http://localhost:8283/api/agents',
-            headers={'Authorization': f'Bearer {user_api_key}', 'Content-Type': 'application/json'},
-            json={
-                "config": {
-                    "user_id": f"{user_memgpt_id}",
-                    "name": "DefaultAgent",
-                    "preset": "memgpt_chat",
-                }
-            }
-        )
-        if agent_response.status_code == 200:
-            agent_data = agent_response.json()
-            agent_id = agent_data['agent_state']['id']
-            # Save API key and agent ID in Supabase
-            await save_user_api_key(telegram_user_id, user_api_key)
-            await save_user_agent_id(telegram_user_id, agent_id)
-            # Save MemGPT user ID and API key in Supabase
-            await save_memgpt_user_id_and_api_key(telegram_user_id, user_memgpt_id, user_api_key)
-            
+# Update the FIXIES dictionary to use source IDs
+FIXIES = {
+    "FixieTheGenie": Fixie("FixieTheGenie", "General Assistant", "memgpt_chat", ["ec44d5cb-39ea-4b00-bebc-b9f2ad5ce6aa", "eea587fd-66b9-4877-b784-0cd923ef2df9"]),
+    "FixieTheArb": Fixie("FixieTheArb", "Arbitrage Specialist", "memgpt_chat", ["ec44d5cb-39ea-4b00-bebc-b9f2ad5ce6aa"]),
+    # Add more Fixies as needed
+}
 
-            # Create and attach source to the agent
-            source_id = await create_source(user_api_key, agent_id)
+async def get_source_id_by_name(source_name: str):
+    url = "http://localhost:8283/api/sources"
+    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
 
-            await upload_to_source(user_api_key, source_id)
-
-            await asyncio.sleep(35)
-
-            await attach_source(user_api_key, agent_id, source_id)
-
-            await save_source_id(telegram_user_id, source_id)
-
-            return "Your MemGPT agent has been created."
-        else:
-            return "Failed to create MemGPT agent."
-    else:
-        return "Failed to create MemGPT user."
-
-async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
-    user_api_key = await get_user_api_key(telegram_user_id)
-    agent_id = await get_user_agent_id(telegram_user_id)
-    print(f"user_api_key: {user_api_key}, agent_id: {agent_id}")  # Add this line for debugging
-    if not user_api_key or not agent_id:
-        return "No API key or agent found. Please start again."
+    response = await async_request('GET', url, headers=headers)
     
-    response = await async_request(
+    if response.status_code == 200:
+        sources = response.json()
+        for source in sources:
+            if isinstance(source, dict) and source.get('name') == source_name:
+                return source.get('id')
+    return None
+
+async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
+    fixie = FIXIES["FixieTheGenie"]
+    response_text, status_code = await async_request(
         'POST',
-        f'http://localhost:8283/api/agents/{agent_id}/messages',
-        headers={'Authorization': f'Bearer {user_api_key}'},
-        json={'agent_id': agent_id, 'message': message_text, 'stream': True, 'role': 'user'}
+        'http://localhost:8283/api/agents',
+        headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}', 'Content-Type': 'application/json'},
+        json={
+            "config": {
+                "name": f"{pseudonym}'s {fixie.name}",
+                "preset": fixie.preset,
+                "human": f"Name: {pseudonym}"
+            }
+        }
     )
     
-    if response.status_code == 200:
-        # Extract and return assistant message
-        assistant_message = None
-        for line in response.text.split('\n'):
-            if line.startswith('data:'):
-                try:
-                    data = json.loads(line[len('data:'):])
-                    if 'assistant_message' in data:
-                        assistant_message = data['assistant_message']
-                        break
-                except json.JSONDecodeError as e:
-                    print("Error parsing JSON:", e)
-                    
-        if assistant_message:
-            return assistant_message
+    if status_code == 200:
+        agent_data = json.loads(response_text)
+        agent_id = agent_data['agent_state']['id']
+        await save_user_agent_id(telegram_user_id, agent_id)
+        
+        logging.info(f"Created new agent for {pseudonym} with ID: {agent_id}")
+        
+        attachment_results = []
+        for source_id in fixie.data_sources:
+            result = await attach_source(agent_id, source_id)
+            attachment_results.append(result)
+            logging.info(f"Attaching source {source_id} to agent {agent_id}: {'Success' if result else 'Failed'}")
+        
+        if all(attachment_results):
+            return f"MemGPT user setup completed. {fixie.name} is ready to assist you!"
         else:
-            return "No assistant message found in response."
+            failed_sources = [source_id for source_id, result in zip(fixie.data_sources, attachment_results) if not result]
+            logging.warning(f"Failed to attach sources: {failed_sources} for agent {agent_id}")
+            return f"MemGPT user created, but some data sources couldn't be attached. {fixie.name} may have limited knowledge."
     else:
-        return "Failed to send message to MemGPT."
+        logging.error(f"Error creating MemGPT user: {status_code} - {response_text}")
+        return None
+
+async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
+    agent_id = await get_user_agent_id(telegram_user_id)
+
+    if not agent_id:
+        logging.error(f"No agent found for user {telegram_user_id}")
+        return "No agent found. Please start again with /start."
+    
+    logging.info(f"Sending message to MemGPT for user {telegram_user_id}, agent {agent_id}")
+    
+    try:
+        response_text, status_code = await async_request(
+            'POST',
+            f'http://localhost:8283/api/agents/{agent_id}/messages',
+            headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}'},
+            json={'agent_id': agent_id, 'message': message_text, 'stream': True, 'role': 'user'}
+        )
+        
+        if status_code == 200:
+            assistant_message = None
+            for line in response_text.split('\n'):
+                if line.startswith('data:'):
+                    try:
+                        data = json.loads(line[len('data:'):])
+                        if 'assistant_message' in data:
+                            assistant_message = data['assistant_message']
+                            break
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Error parsing JSON for user {telegram_user_id}: {e}")
+                        
+            logging.info(f"Received response for user {telegram_user_id}, agent {agent_id}")
+            return assistant_message if assistant_message else "No assistant message found in response."
+        else:
+            logging.error(f"Failed to send message to MemGPT for user {telegram_user_id}. Status code: {status_code}, Response: {response_text}")
+            return "Failed to send message to MemGPT."
+    except Exception as e:
+        logging.exception(f"Exception occurred while sending message to MemGPT for user {telegram_user_id}: {str(e)}")
+        return "An error occurred while processing your message. Please try again later."
 
 async def list_agents(telegram_user_id: int):
     # Check if user already exists in Supabase
@@ -106,21 +127,27 @@ async def list_agents(telegram_user_id: int):
     if not user_exists:
         return "Create a user first."
 
-    user_api_key = await get_user_api_key(telegram_user_id)
-
     url = "http://localhost:8283/api/agents"
-    headers = {"accept": "application/json", "authorization": f"Bearer {user_api_key}"}
+    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
 
     response = requests.get(url, headers=headers)
 
+    pseudonym = await get_user_pseudonym(telegram_user_id)
+
     if response.status_code == 200:
         data = json.loads(response.text)
-        num_agents = data.get("num_agents", 0)
         agents = data.get("agents", [])
         
-        agent_info = f"Num of agents: {num_agents}\n" + "-" * 7 + "\n"
+        agent_info = "-" * 7 + "\n"
         
-        for agent in agents:
+        # Filter agents whose names include the pseudonym
+        filtered_agents = [agent for agent in agents if pseudonym and pseudonym in agent.get("name", "")]
+        
+        # Debugging: Log the pseudonym and filtered agents
+        logging.info(f"Pseudonym: {pseudonym}")
+        logging.info(f"Filtered Agents: {filtered_agents}")
+        
+        for agent in filtered_agents:
             name = agent.get("name", "")
             agent_id = agent.get("id", "")
             persona = agent.get("persona", "")
@@ -132,7 +159,7 @@ async def list_agents(telegram_user_id: int):
             agent_info += f"Creation Date: {created_at}\n"
             agent_info += "-------\n"
         
-        return agent_info
+        return agent_info if filtered_agents else "No agents found with the specified pseudonym."
     else:
         return "Failed to fetch agents data."
     
@@ -157,14 +184,10 @@ async def create_agent(telegram_user_id: int, agent_name: str):
             }
         )
 
-
-
     if agent_response.status_code == 200:
         agents_info = await list_agents(telegram_user_id)
-
-        agent_id = await name_to_id(agents_info, agent_name)
-
         
+        agent_id = await name_to_id(agents_info, agent_name)
 
         source_id = await get_source_id(telegram_user_id)
         print 
@@ -173,7 +196,6 @@ async def create_agent(telegram_user_id: int, agent_name: str):
         return "Your MemGPT agent has been created."
     else:
         return "Failed to create MemGPT agent."
-
 
 async def create_source(user_api_key: str, agent_id: str):
 
@@ -209,143 +231,21 @@ async def upload_to_source(user_api_key: str, source_id):
 
     print("Upload.")
 
-async def attach_source(user_api_key: str, agent_id, source_id):
+async def attach_source(agent_id: str, source_id: str):
     url = f"http://localhost:8283/api/sources/{source_id}/attach?agent_id={agent_id}"
-
-    headers = {
-        "accept": "application/json",
-        "authorization": f"Bearer {user_api_key}"
-    }
-
-    response = requests.post(url, headers=headers)
-
-    print("Upload.")
-
-async def current_agent(telegram_user_id: int):
-    # Check if user already exists in Supabase
-    user_exists = await check_user_exists(telegram_user_id)
-    if not user_exists:
-        return "Create a user first."
-
-    user_api_key = await get_user_api_key(telegram_user_id)
-
-    agent_id = await get_user_agent_id(telegram_user_id)
-
-    url = f"http://localhost:8283/api/agents/{agent_id}/config"
-    headers = {"accept": "application/json", "authorization": f"Bearer {user_api_key}"}
-
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        data = json.loads(response.text)
+    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
+    
+    try:
+        response_text, status_code = await async_request('POST', url, headers=headers)
+        logging.info(f"Attach response status code: {status_code}")
+        logging.info(f"Attach response content: {response_text}")
         
-        agent_state = data.get("agent_state", {})
-        agent_id = agent_state.get("id", "")
-        agent_name = agent_state.get("name", "")
-        created_at = agent_state.get("created_at", "")
-        preset = agent_state.get("preset", "")
-
-        current_agent_info = f"Your current agent info:\n"
-        current_agent_info += f"-----{agent_name}-----\n"
-        current_agent_info += f"Agent ID: {agent_id}\n"
-        current_agent_info += f"Preset: {preset}\n"
-        current_agent_info += f"Creation Date: {created_at}\n"
-
-        return current_agent_info
-    else:
-        return "Failed to fetch current agent's info."
-
-async def change_agent(telegram_user_id: int, agent_name: str):
-    # Check if user already exists in Supabase
-    user_exists = await check_user_exists(telegram_user_id)
-    if not user_exists:
-        return "Create a user first."
-    
-    # Fetch the list of agents
-    agents_info = await list_agents(telegram_user_id)
-    
-    # Check if agent_name matches any of the agent names
-    if agent_name not in agents_info:
-        return "Agent not found. Please choose from the available agents."
-
-    agent_id = await name_to_id(agents_info, agent_name)
-
-    await save_user_agent_id(telegram_user_id, agent_id)
-
-    return f"Your agent changed to {agent_name}."
-
-async def delete_agent(telegram_user_id: int, agent_name: str):
-
-    changed_agent = False
-
-    # Check if user already exists in Supabase
-    user_exists = await check_user_exists(telegram_user_id)
-    if not user_exists:
-        return "Create a user first."
-    
-    # Fetch the list of agents
-    agents_info = await list_agents(telegram_user_id)
-    
-    # Check if agent_name matches any of the agent names
-    if agent_name not in agents_info:
-        return "Agent not found. Please choose from the available agents."
-
-    agent_id = await name_to_id(agents_info, agent_name)
-    user_api_key = await get_user_api_key(telegram_user_id)
-
-    curr_agent_id = await get_user_agent_id(telegram_user_id)
-
-    if(agent_id == curr_agent_id):
-        if agents_info.count("Agent Name:") == 1:
-            return "Please create another agent first."
-        
-        # Extract agent names
-        agent_names = [line.split("Agent Name: ")[1].strip() for line in agents_info.split("\n") if line.startswith("Agent Name:")]
-
-        # Remove current agent from the list
-        agent_names.remove(agent_name)
-
-        # Choose a random agent from the remaining list
-        new_agent_name = random.choice(agent_names)
-
-        # Change to the new agent
-        await change_agent(telegram_user_id, new_agent_name)
-
-        changed_agent = True
-
-
-    
-
-    url = f"http://localhost:8283/api/agents/{agent_id}"
-    headers = {"accept": "application/json", "authorization": f"Bearer {user_api_key}"}
-
-    response = requests.delete(url, headers=headers)
-
-    if response.status_code == 200:
-        if changed_agent:
-            return f"Agent {agent_name} successfully deleted and current agent changed to {new_agent_name}."
-        return f"Agent {agent_name} successfully deleted."
-    else:
-        return f"Error occured."
-
-async def name_to_id(agents_info, agent_name):
-    # Split agents_info into individual agent records
-    agent_records = agents_info.split("-------")
-    agent_id = None
-
-    # Search for the agent name and extract its ID
-    for record in agent_records:
-        if agent_name in record:
-            lines = record.split("\n")
-            for line in lines:
-                if line.startswith("Agent ID:"):
-                    agent_id = line.split("Agent ID: ")[1].strip()
-                    break
-            if agent_id:
-                break
-
-    if agent_id is None:
-        return "Failed to extract agent ID."
-    
-    return agent_id
-    
+        if status_code == 200:
+            logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
+            return True
+        else:
+            logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
+            return False
+    except Exception as e:
+        logging.exception(f"Exception occurred while attaching source: {str(e)}")
+        return False

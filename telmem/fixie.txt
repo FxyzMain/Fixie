@@ -1,0 +1,3 @@
+#Fixie information
+
+WE offer users Fixies - whicih are name of the digital agents, and depending on what that agent does , it will have access to different tools and data sources.
