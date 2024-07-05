@@ -21,6 +21,16 @@ DEFAULT_PERSONA = "sam_pov"
 DEFAULT_HUMAN = "basic"
 DEFAULT_PRESET = "memgpt_chat"
 
+# Tools
+BASE_TOOLS = [
+    "send_message",
+    "pause_heartbeats",
+    "conversation_search",
+    "conversation_search_date",
+    "archival_memory_insert",
+    "archival_memory_search",
+]
+
 # LOGGER_LOG_LEVEL is use to convert Text to Logging level value for logging mostly for Cli input to setting level
 LOGGER_LOG_LEVELS = {"CRITICAL": CRITICAL, "ERROR": ERROR, "WARN": WARN, "WARNING": WARNING, "INFO": INFO, "DEBUG": DEBUG, "NOTSET": NOTSET}
 
