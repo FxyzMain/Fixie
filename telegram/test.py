@@ -33,22 +33,47 @@ def get_sources():
         logging.error(f"JSON decode error: {e}")
         return None
 
+def create_source(name):
+    try:
+        payload = {"name": name}
+        response = requests.post(f"{base_url}/sources", headers=headers, json=payload)
+        logging.info(f"Create source response: Status {response.status_code}, Content: {response.text}")
+        
+        if response.status_code == 200:
+            return response.json().get('id')
+        elif response.status_code == 500 and "already exists" in response.text:
+            logging.info(f"Source {name} already exists, fetching its ID")
+            return get_source_id_by_name(name)
+        else:
+            logging.error(f"Failed to create source {name}. Status code: {response.status_code}")
+            return None
+    except Exception as e:
+        logging.exception(f"Exception occurred while creating source {name}: {str(e)}")
+        return None
+
+def get_source_id_by_name(name):
+    sources = get_sources()
+    if sources:
+        for source in sources:
+            if source['name'] == name:
+                return source['id']
+    return None
+
 def main():
     sources = get_sources()
     if sources:
         logging.info("Available sources:")
         for source in sources:
-            logging.info(f"- Name: {source['name']}")
-            logging.info(f"  ID: {source['id']}")
-            logging.info(f"  Description: {source['description']}")
-            logging.info(f"  Created at: {source['created_at']}")
-            if 'metadata_' in source and 'attached_agents' in source['metadata_']:
-                logging.info("  Attached agents:")
-                for agent in source['metadata_']['attached_agents']:
-                    logging.info(f"    - {agent['name']} (ID: {agent['id']})")
-            logging.info("---")
+            logging.info(f"- Name: {source['name']}, ID: {source['id']}")
     else:
         logging.error("Failed to retrieve sources.")
+
+    source_names = ["fxyzMain", "OTC"]
+    for name in source_names:
+        source_id = get_source_id_by_name(name)
+        if not source_id:
+            source_id = create_source(name)
+        logging.info(f"Source {name}: ID = {source_id}")
 
 if __name__ == "__main__":
     main()

@@ -1524,6 +1524,53 @@
           }
         }
       }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "chat_completions"
+        ],
+        "summary": "Create Chat Completion",
+        "description": "Send a message to a MemGPT agent via a /chat/completions request\n\nThe bearer token will be used to identify the user.\nThe 'user' field in the request should be set to the agent ID.",
+        "operationId": "create_chat_completion_v1_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1578,28 +1625,18 @@
             "title": "Created At",
             "description": "The unix timestamp of when the agent was created."
           },
-          "preset": {
-            "type": "string",
-            "title": "Preset",
-            "description": "The preset used by the agent."
-          },
-          "persona": {
-            "type": "string",
-            "title": "Persona",
-            "description": "The persona used by the agent."
-          },
-          "human": {
-            "type": "string",
-            "title": "Human",
-            "description": "The human used by the agent."
-          },
-          "functions_schema": {
+          "tools": {
             "items": {
-              "type": "object"
+              "type": "string"
             },
             "type": "array",
-            "title": "Functions Schema",
-            "description": "The functions schema used by the agent."
+            "title": "Tools",
+            "description": "The tools used by the agent."
+          },
+          "system": {
+            "type": "string",
+            "title": "System",
+            "description": "The system prompt used by the agent."
           },
           "llm_config": {
             "allOf": [
@@ -1628,6 +1665,18 @@
             ],
             "title": "State",
             "description": "The state of the agent."
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "The metadata of the agent."
           }
         },
         "type": "object",
@@ -1636,10 +1685,8 @@
           "name",
           "user_id",
           "created_at",
-          "preset",
-          "persona",
-          "human",
-          "functions_schema",
+          "tools",
+          "system",
           "llm_config",
           "embedding_config"
         ],
@@ -1697,6 +1744,53 @@
         ],
         "title": "AssistantFile"
       },
+      "AssistantMessage": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "assistant"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/memgpt__models__chat_completion_request__ToolCall"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          }
+        },
+        "type": "object",
+        "title": "AssistantMessage"
+      },
       "AuthRequest": {
         "properties": {
           "password": {
@@ -1736,6 +1830,384 @@
           "file"
         ],
         "title": "Body_upload_file_to_source_api_sources__source_id__upload_post"
+      },
+      "ChatCompletionRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "messages": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SystemMessage"
+                },
+                {
+                  "$ref": "#/components/schemas/UserMessage"
+                },
+                {
+                  "$ref": "#/components/schemas/AssistantMessage"
+                },
+                {
+                  "$ref": "#/components/schemas/ToolMessage"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "frequency_penalty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency Penalty",
+            "default": 0
+          },
+          "logit_bias": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logit Bias"
+          },
+          "logprobs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logprobs",
+            "default": false
+          },
+          "top_logprobs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Logprobs"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N",
+            "default": 1
+          },
+          "presence_penalty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presence Penalty",
+            "default": 0
+          },
+          "response_format": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponseFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop"
+          },
+          "stream": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream",
+            "default": false
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature",
+            "default": 1
+          },
+          "top_p": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P",
+            "default": 1
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Tool"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "tool_choice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "auto"
+                ]
+              },
+              {
+                "$ref": "#/components/schemas/ToolFunctionChoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Choice",
+            "default": "none"
+          },
+          "functions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FunctionSchema"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Functions"
+          },
+          "function_call": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "auto"
+                ]
+              },
+              {
+                "$ref": "#/components/schemas/FunctionCall-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Function Call"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "messages"
+        ],
+        "title": "ChatCompletionRequest",
+        "description": "https://platform.openai.com/docs/api-reference/chat/create"
+      },
+      "ChatCompletionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            },
+            "type": "array",
+            "title": "Choices"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "system_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Fingerprint"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "chat.completion"
+            ],
+            "const": "chat.completion",
+            "title": "Object",
+            "default": "chat.completion"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageStatistics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "choices",
+          "created",
+          "usage"
+        ],
+        "title": "ChatCompletionResponse",
+        "description": "https://platform.openai.com/docs/api-reference/chat/object"
+      },
+      "Choice": {
+        "properties": {
+          "finish_reason": {
+            "type": "string",
+            "title": "Finish Reason"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "logprobs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "$ref": "#/components/schemas/MessageContentLogProb"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logprobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finish_reason",
+          "index",
+          "message"
+        ],
+        "title": "Choice"
       },
       "CommandRequest": {
         "properties": {
@@ -2230,7 +2702,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ToolCall"
+                  "$ref": "#/components/schemas/memgpt__models__openai__ToolCall"
                 },
                 "type": "array"
               },
@@ -2361,7 +2833,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ToolCall"
+                  "$ref": "#/components/schemas/memgpt__models__openai__ToolCall"
                 },
                 "type": "array"
               },
@@ -2393,57 +2865,6 @@
           "instructions"
         ],
         "title": "CreateThreadRunRequest"
-      },
-      "CreateToolRequest": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "The name of the function."
-          },
-          "source_code": {
-            "type": "string",
-            "title": "Source Code",
-            "description": "The source code of the function."
-          },
-          "source_type": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "python"
-                ],
-                "const": "python"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Type",
-            "description": "The type of the source code."
-          },
-          "tags": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tags",
-            "description": "Metadata tags."
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "source_code"
-        ],
-        "title": "CreateToolRequest"
       },
       "CreateUserRequest": {
         "properties": {
@@ -2740,6 +3161,72 @@
           "arguments"
         ],
         "title": "Function"
+      },
+      "FunctionCall-Input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FunctionCall"
+      },
+      "FunctionCall-Output": {
+        "properties": {
+          "arguments": {
+            "type": "string",
+            "title": "Arguments"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arguments",
+          "name"
+        ],
+        "title": "FunctionCall"
+      },
+      "FunctionSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FunctionSchema"
       },
       "GetAPIKeysResponse": {
         "properties": {
@@ -3333,6 +3820,163 @@
         ],
         "title": "ListToolsResponse"
       },
+      "LogProbToken": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "logprob": {
+            "type": "number",
+            "title": "Logprob"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "logprob",
+          "bytes"
+        ],
+        "title": "LogProbToken"
+      },
+      "MemGPTUsageStatistics": {
+        "properties": {
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "title": "Total Tokens"
+          },
+          "step_count": {
+            "type": "integer",
+            "title": "Step Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "completion_tokens",
+          "prompt_tokens",
+          "total_tokens",
+          "step_count"
+        ],
+        "title": "MemGPTUsageStatistics"
+      },
+      "Message": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/memgpt__models__chat_completion_response__ToolCall"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "function_call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FunctionCall-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "Message"
+      },
+      "MessageContentLogProb": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "logprob": {
+            "type": "number",
+            "title": "Logprob"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "top_logprobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/LogProbToken"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Logprobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "logprob",
+          "bytes",
+          "top_logprobs"
+        ],
+        "title": "MessageContentLogProb"
+      },
       "MessageFile": {
         "properties": {
           "id": {
@@ -3760,7 +4404,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ToolCall"
+                  "$ref": "#/components/schemas/memgpt__models__openai__ToolCall"
                 },
                 "type": "array"
               },
@@ -3989,7 +4633,7 @@
           },
           "tool_calls": {
             "items": {
-              "$ref": "#/components/schemas/ToolCall"
+              "$ref": "#/components/schemas/memgpt__models__openai__ToolCall"
             },
             "type": "array",
             "title": "Tool Calls",
@@ -4301,7 +4945,7 @@
           },
           "submit_tool_outputs": {
             "items": {
-              "$ref": "#/components/schemas/ToolCall"
+              "$ref": "#/components/schemas/memgpt__models__openai__ToolCall"
             },
             "type": "array",
             "title": "Submit Tool Outputs"
@@ -4312,6 +4956,18 @@
           "submit_tool_outputs"
         ],
         "title": "RequiredAction"
+      },
+      "ResponseFormat": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "pattern": "^(text|json_object)$",
+            "title": "Type",
+            "default": "text"
+          }
+        },
+        "type": "object",
+        "title": "ResponseFormat"
       },
       "SourceModel": {
         "properties": {
@@ -4398,6 +5054,35 @@
         ],
         "title": "SubmitToolOutputsToRunRequest"
       },
+      "SystemMessage": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "system"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "SystemMessage"
+      },
       "Text": {
         "properties": {
           "object": {
@@ -4417,33 +5102,44 @@
         ],
         "title": "Text"
       },
-      "ToolCall": {
+      "Tool": {
         "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id",
-            "description": "The unique identifier of the tool call."
-          },
           "type": {
             "type": "string",
+            "enum": [
+              "function"
+            ],
+            "const": "function",
             "title": "Type",
             "default": "function"
           },
           "function": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/Function"
-              }
-            ],
-            "description": "The function call."
+            "$ref": "#/components/schemas/FunctionSchema"
           }
         },
         "type": "object",
         "required": [
-          "id",
           "function"
         ],
-        "title": "ToolCall"
+        "title": "Tool"
+      },
+      "ToolCallFunction": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "arguments": {
+            "type": "string",
+            "title": "Arguments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "arguments"
+        ],
+        "title": "ToolCallFunction"
       },
       "ToolCallOutput": {
         "properties": {
@@ -4464,6 +5160,50 @@
           "output"
         ],
         "title": "ToolCallOutput"
+      },
+      "ToolFunctionChoice": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "function"
+            ],
+            "const": "function",
+            "title": "Type",
+            "default": "function"
+          },
+          "function": {
+            "$ref": "#/components/schemas/FunctionCall-Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "function"
+        ],
+        "title": "ToolFunctionChoice"
+      },
+      "ToolMessage": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "tool"
+          },
+          "tool_call_id": {
+            "type": "string",
+            "title": "Tool Call Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content",
+          "tool_call_id"
+        ],
+        "title": "ToolMessage"
       },
       "ToolModel": {
         "properties": {
@@ -4510,10 +5250,35 @@
             "title": "Source Code",
             "description": "The source code of the function."
           },
+          "module": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Module",
+            "description": "The module of the function."
+          },
           "json_schema": {
             "type": "object",
             "title": "Json Schema",
             "description": "The JSON schema of the function."
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "The unique identifier of the user associated with the function."
           }
         },
         "type": "object",
@@ -4566,6 +5331,66 @@
         ],
         "title": "UpdateAgentMemoryResponse"
       },
+      "UsageStatistics": {
+        "properties": {
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens",
+            "default": 0
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens",
+            "default": 0
+          },
+          "total_tokens": {
+            "type": "integer",
+            "title": "Total Tokens",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "UsageStatistics"
+      },
+      "UserMessage": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Content"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "user"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "UserMessage"
+      },
       "UserMessageRequest": {
         "properties": {
           "message": {
@@ -4574,16 +5399,16 @@
             "description": "The message content to be processed by the agent."
           },
           "name": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Name",
-            "description": "Name of the message request sender",
-            "default": "user"
-          },
-          "stream": {
-            "type": "boolean",
-            "title": "Stream",
-            "description": "Flag to determine if the response should be streamed. Set to True for streaming.",
-            "default": false
+            "description": "Name of the message request sender"
           },
           "role": {
             "allOf": [
@@ -4593,6 +5418,18 @@
             ],
             "description": "Role of the message sender (either 'user' or 'system')",
             "default": "user"
+          },
+          "stream_steps": {
+            "type": "boolean",
+            "title": "Stream Steps",
+            "description": "Flag to determine if the response should be streamed. Set to True for streaming agent steps.",
+            "default": false
+          },
+          "stream_tokens": {
+            "type": "boolean",
+            "title": "Stream Tokens",
+            "description": "Flag to determine if individual tokens should be streamed. Set to True for token streaming (requires stream = True).",
+            "default": false
           },
           "timestamp": {
             "anyOf": [
@@ -4606,6 +5443,13 @@
             ],
             "title": "Timestamp",
             "description": "Timestamp to tag the message with (in ISO format). If null, timestamp will be created server-side on receipt of message."
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "description": "Legacy flag for old streaming API, will be deprecrated in the future.",
+            "default": false,
+            "deprecated": true
           }
         },
         "type": "object",
@@ -4623,11 +5467,20 @@
             "type": "array",
             "title": "Messages",
             "description": "List of messages generated by the agent in response to the received message."
+          },
+          "usage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemGPTUsageStatistics"
+              }
+            ],
+            "description": "Usage statistics for the completion."
           }
         },
         "type": "object",
         "required": [
-          "messages"
+          "messages",
+          "usage"
         ],
         "title": "UserMessageResponse"
       },
@@ -4663,6 +5516,201 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "memgpt__models__chat_completion_request__ToolCall": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "function"
+            ],
+            "const": "function",
+            "title": "Type",
+            "default": "function"
+          },
+          "function": {
+            "$ref": "#/components/schemas/ToolCallFunction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "function"
+        ],
+        "title": "ToolCall"
+      },
+      "memgpt__models__chat_completion_response__ToolCall": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "function"
+            ],
+            "const": "function",
+            "title": "Type",
+            "default": "function"
+          },
+          "function": {
+            "$ref": "#/components/schemas/FunctionCall-Output"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "function"
+        ],
+        "title": "ToolCall"
+      },
+      "memgpt__models__openai__ToolCall": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "The unique identifier of the tool call."
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "function"
+          },
+          "function": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Function"
+              }
+            ],
+            "description": "The function call."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "function"
+        ],
+        "title": "ToolCall"
+      },
+      "memgpt__server__rest_api__admin__tools__CreateToolRequest": {
+        "properties": {
+          "json_schema": {
+            "type": "object",
+            "title": "Json Schema",
+            "description": "JSON schema of the tool."
+          },
+          "source_code": {
+            "type": "string",
+            "title": "Source Code",
+            "description": "The source code of the function."
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "python"
+                ],
+                "const": "python"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type",
+            "description": "The type of the source code."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags",
+            "description": "Metadata tags."
+          }
+        },
+        "type": "object",
+        "required": [
+          "json_schema",
+          "source_code"
+        ],
+        "title": "CreateToolRequest"
+      },
+      "memgpt__server__rest_api__tools__index__CreateToolRequest": {
+        "properties": {
+          "json_schema": {
+            "type": "object",
+            "title": "Json Schema",
+            "description": "JSON schema of the tool."
+          },
+          "source_code": {
+            "type": "string",
+            "title": "Source Code",
+            "description": "The source code of the function."
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "python"
+                ],
+                "const": "python"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type",
+            "description": "The type of the source code."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags",
+            "description": "Metadata tags."
+          },
+          "update": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Update",
+            "description": "Update the tool if it already exists.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "json_schema",
+          "source_code"
+        ],
+        "title": "CreateToolRequest"
       }
     },
     "securitySchemes": {

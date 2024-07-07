@@ -4,7 +4,7 @@ from os import getenv
 from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, Router, html
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -63,9 +63,14 @@ async def handle_message(message: Message):
         await message.answer("It seems you're not registered yet. Please start with /start to create your account.")
         return
 
+    agent_id = await get_user_agent_id(message.from_user.id)
+    if not agent_id:
+        await message.answer("Your agent hasn't been set up properly. Please try /start again.")
+        return
+
     logger.debug(f"Handling message for user {message.from_user.id}: {message.text}")
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await user_queues[message.from_user.id].put(message.text)
-    await message.answer("Processing your message...")
 
 async def process_message_queue():
     while True:
