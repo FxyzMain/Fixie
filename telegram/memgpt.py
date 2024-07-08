@@ -2,7 +2,7 @@ import requests
 import json
 import asyncio
 import logging
-from db import save_user_api_key, save_user_agent_id, get_user_agent_id, check_user_exists, save_source_id, get_source_id, save_memgpt_user_id_and_api_key, get_user_pseudonym, delete_user
+from db import save_user_agent_id, get_user_agent_id, check_user_exists, get_user_pseudonym, delete_user
 import os
 from dotenv import load_dotenv
 
@@ -147,9 +147,15 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
     if status_code == 200:
         agent_data = json.loads(response_text)
         agent_id = agent_data['agent_state']['id']
-        await save_user_agent_id(telegram_user_id, agent_id)
+        save_result = await save_user_agent_id(telegram_user_id, agent_id)
+        if not save_result:
+            logging.error(f"Failed to save agent ID for user {telegram_user_id}")
+            return "Error: Failed to save your agent information. Please try again later."
         
         logging.info(f"Created new agent for {pseudonym} with ID: {agent_id}")
+        
+        # Add a delay before attaching sources
+        await asyncio.sleep(2)
         
         attachment_results = []
         for source_id in fixie.data_sources:
@@ -168,9 +174,9 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
             return f"MemGPT user created, but no data sources were attached. {fixie.name} may have limited knowledge."
     else:
         logging.error(f"Error creating MemGPT user: {status_code} - {response_text}")
-        return None
+        return f"Error: Failed to create MemGPT user. Status code: {status_code}"
 
-async def attach_source(agent_id: str, source_id: str):
+async def attach_source(agent_id: str, source_id: str, max_retries=3, delay=1):
     if not source_id or not agent_id:
         logging.warning(f"Invalid source_id or agent_id")
         return False
@@ -178,20 +184,27 @@ async def attach_source(agent_id: str, source_id: str):
     url = f"http://localhost:8283/api/sources/{source_id}/attach?agent_id={agent_id}"
     headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
     
-    try:
-        response_text, status_code = await async_request('POST', url, headers=headers)
-        logging.info(f"Attach response status code: {status_code}")
-        logging.info(f"Attach response content: {response_text}")
-        
-        if status_code == 200:
-            logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
-            return True
-        else:
-            logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
-            return False
-    except Exception as e:
-        logging.exception(f"Exception occurred while attaching source: {str(e)}")
-        return False
+    for attempt in range(max_retries):
+        try:
+            response_text, status_code = await async_request('POST', url, headers=headers)
+            logging.info(f"Attach response status code: {status_code}")
+            logging.info(f"Attach response content: {response_text}")
+            
+            if status_code == 200:
+                logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
+                return True
+            elif status_code == 500 and "agent_id does not exist" in response_text:
+                logging.warning(f"Agent {agent_id} not found. Retrying in {delay} seconds...")
+                await asyncio.sleep(delay)
+            else:
+                logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
+                return False
+        except Exception as e:
+            logging.exception(f"Exception occurred while attaching source: {str(e)}")
+            await asyncio.sleep(delay)
+    
+    logging.error(f"Failed to attach source {source_id} to agent {agent_id} after {max_retries} attempts.")
+    return False
 
 async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
     agent_id = await get_user_agent_id(telegram_user_id)
