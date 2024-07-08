@@ -8,14 +8,9 @@ import logging
 # Load environment variables from .env file
 load_dotenv()
 
-# Retrieve environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-print(f"SUPABASE_URL: {SUPABASE_URL}")
-print(f"SUPABASE_SERVICE_ROLE_KEY: {SUPABASE_SERVICE_ROLE_KEY}")
-
-# Initialize Supabase client with the service role key
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 logging.basicConfig(level=logging.INFO)
@@ -34,20 +29,6 @@ async def get_user_agent_id(telegram_user_id: int):
     
     return None
 
-async def get_memgpt_user_id(telegram_user_id: int) -> str:
-    loop = asyncio.get_event_loop()
-    data, error = await loop.run_in_executor(None, lambda: supabase.table("users3").select("memgpt_user_id").eq("telegram_user_id", telegram_user_id).execute())
-    logging.info(f"Data fetched for memgpt_user_id: {data}, Error: {error}")
-
-    if data[1] and data[1][0].get('memgpt_user_id'):
-        memgpt_user_id_value = data[1][0]['memgpt_user_id']
-        logging.info(f"Returning memgpt_user_id: {memgpt_user_id_value}")
-        return memgpt_user_id_value
-    else:
-        logging.error("Missing 'memgpt_user_id' field.")
-    
-    return None
-
 async def save_user_agent_id(telegram_user_id: int, agent_id: str):
     loop = asyncio.get_event_loop()
     try:
@@ -61,6 +42,20 @@ async def save_user_agent_id(telegram_user_id: int, agent_id: str):
     except Exception as e:
         logging.error(f"An error occurred while saving agent ID: {e}")
         return False
+
+async def get_memgpt_user_id(telegram_user_id: int) -> str:
+    loop = asyncio.get_event_loop()
+    data, error = await loop.run_in_executor(None, lambda: supabase.table("users3").select("memgpt_user_id").eq("telegram_user_id", telegram_user_id).execute())
+    logging.info(f"Data fetched for memgpt_user_id: {data}, Error: {error}")
+
+    if data[1] and data[1][0].get('memgpt_user_id'):
+        memgpt_user_id_value = data[1][0]['memgpt_user_id']
+        logging.info(f"Returning memgpt_user_id: {memgpt_user_id_value}")
+        return memgpt_user_id_value
+    else:
+        logging.error("Missing 'memgpt_user_id' field.")
+    
+    return None
 
 async def check_user_exists(telegram_user_id: int) -> bool:
     try:
