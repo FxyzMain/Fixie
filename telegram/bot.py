@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import BotCommand, Message
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.bot import DefaultBotProperties
 from dotenv import load_dotenv
@@ -105,10 +105,18 @@ async def process_message_queue():
                 await bot.send_message(user_id, response)
         await asyncio.sleep(0.1)
 
+async def set_commands(bot: Bot):
+    commands = [
+        BotCommand(command="/start", description="Begin interaction or get a welcome message"),
+        BotCommand(command="/help", description="Show this help message"),
+    ]
+    await bot.set_my_commands(commands)
+
 async def main():
     await update_fixies()  # Ensure FIXIES is updated before starting the bot
     dp.include_router(router)
     asyncio.create_task(process_message_queue())
+    await set_commands(bot)  # Set the bot commands
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
