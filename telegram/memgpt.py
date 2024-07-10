@@ -104,7 +104,6 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
     human_template = f"""This is what I know so far about the user, I should expand this as I learn more about them.
 
 First name: {pseudonym}
-Last name: 
 Gender: 
 Age: 
 Nationality: 
