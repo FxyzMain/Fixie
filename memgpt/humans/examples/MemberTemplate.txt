@@ -1,0 +1,13 @@
+This is what I know so far about the user, I should expand this as I learn more about them.
+
+First name: {first_name}
+Last name: {last_name}
+Gender: {gender}
+Age: {age}
+Nationality: {nationality}
+Occupation: {occupation}
+Interests: {interests}
+Expertise: {expertise}
+Organization (if applicable): {organization}
+Network Role: {network_role}
+NFT Status: {nft_status}

@@ -3344,38 +3344,6 @@
         ],
         "title": "GetAgentResponse"
       },
-      "GetAllUsersRequest": {
-        "properties": {
-          "cursor": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cursor",
-            "description": "Cursor to which to start the paginated request."
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit",
-            "description": "Maximum number of users to retrieve per page.",
-            "default": 50
-          }
-        },
-        "type": "object",
-        "title": "GetAllUsersRequest"
-      },
       "GetAllUsersResponse": {
         "properties": {
           "cursor": {

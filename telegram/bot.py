@@ -49,13 +49,17 @@ async def process_pseudonym(message: Message, state: FSMContext):
     pseudonym = message.text
     await save_user_pseudonym(message.from_user.id, pseudonym)
     
+    await message.answer(
+        f"Great choice, {html.quote(pseudonym)}! I'm setting up your personalized Fixie assistant now. "
+        "This may take a moment, so please hang tight..."
+    )
+    
     result = await create_memgpt_user(message.from_user.id, pseudonym)
     if result:
         await message.answer(
-            f"Great choice, {html.quote(pseudonym)}! {result} "
-            "Your customized NFT will be minted soon, allowing you to interact with the network, "
-            "upgrade your profile, and engage in various activities. "
-            "For now, you can ask me anything about the fxyzNetwork or how I can assist you!"
+            f"Your GenieTheFixie - digital assistant is ready! GenieTheFixie is here to help. "
+            "Your custom NFT will be minted soon, allowing you to fully engage with the fxyzNetwork. "
+            "Feel free to ask me anything about the network or how I can assist you!"
         )
     else:
         await message.answer("I'm sorry, there was an error creating your agent. Please try again with /start.")
