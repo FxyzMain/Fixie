@@ -57,8 +57,9 @@ async def process_pseudonym(message: Message, state: FSMContext):
     result = await create_memgpt_user(message.from_user.id, pseudonym)
     if result:
         await message.answer(
-            f"Your GenieTheFixie - digital assistant is ready! GenieTheFixie is here to help. "
-            "Your custom NFT will be minted soon, allowing you to fully engage with the fxyzNetwork. "
+            f"Your personalized Digital Agent is ready, {html.quote(pseudonym)}! "
+            "GenieTheFixie is here to help you navigate the fxyzNetwork. "
+            "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
             "Feel free to ask me anything about the network or how I can assist you!"
         )
     else:

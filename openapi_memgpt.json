@@ -6366,7 +6366,7 @@
           "stream_tokens": {
             "type": "boolean",
             "title": "Stream Tokens",
-            "description": "Flag to determine if individual tokens should be streamed. Set to True for token streaming (requires stream = True).",
+            "description": "Flag to determine if individual tokens should be streamed. Set to True for token streaming (requires stream_steps = True).",
             "default": false
           },
           "timestamp": {
