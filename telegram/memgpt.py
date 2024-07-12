@@ -5,6 +5,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from db import save_user_agent_id, get_user_agent_id, check_user_exists, get_user_pseudonym, delete_user
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 load_dotenv()
 
@@ -20,6 +21,7 @@ class Fixie:
         self.preset = preset
         self.data_sources = data_sources
 
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 async def async_request(method, url, **kwargs):
     async with aiohttp.ClientSession() as session:
         async with session.request(method, url, **kwargs) as response:
@@ -140,30 +142,24 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
         logging.error(f"Error creating MemGPT user: {status_code} - {response_text}")
         return f"Error: Failed to create MemGPT user. Status code: {status_code}"
 
-async def attach_source(agent_id: str, source_id: str, max_retries=3, delay=1):
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+async def attach_source(agent_id: str, source_id: str):
     url = f"{MEMGPT_API_URL}/sources/{source_id}/attach?agent_id={agent_id}"
     headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
     
-    for attempt in range(max_retries):
-        try:
-            response_text, status_code = await async_request('POST', url, headers=headers)
-            
-            if status_code == 200:
-                logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
-                return True
-            elif status_code == 500 and "agent_id does not exist" in response_text:
-                logging.warning(f"Agent {agent_id} not found. Retrying in {delay} seconds...")
-                await asyncio.sleep(delay)
-            else:
-                logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
-                return False
-        except Exception as e:
-            logging.exception(f"Exception occurred while attaching source: {str(e)}")
-            await asyncio.sleep(delay)
+    response_text, status_code = await async_request('POST', url, headers=headers)
     
-    logging.error(f"Failed to attach source {source_id} to agent {agent_id} after {max_retries} attempts.")
-    return False
+    if status_code == 200:
+        logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
+        return True
+    elif status_code == 500 and "agent_id does not exist" in response_text:
+        logging.warning(f"Agent {agent_id} not found. Retrying...")
+        raise Exception("Agent not found")
+    else:
+        logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
+        return False
 
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
     agent_id = await get_user_agent_id(telegram_user_id)
 
@@ -192,12 +188,32 @@ async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
                             break
                     except json.JSONDecodeError as e:
                         logging.error(f"Error parsing JSON for user {telegram_user_id}: {e}")
-                        
-            logging.info(f"Received response for user {telegram_user_id}, agent {agent_id}")
-            return assistant_message if assistant_message else "No assistant message found in response."
+            
+            if assistant_message:
+                logging.info(f"Received response for user {telegram_user_id}, agent {agent_id}")
+                return assistant_message
+            else:
+                raise Exception("No assistant message found in response")
         else:
-            logging.error(f"Failed to send message to MemGPT for user {telegram_user_id}. Status code: {status_code}, Response: {response_text}")
-            return "Failed to send message to MemGPT."
+            raise Exception(f"Failed to send message to MemGPT. Status code: {status_code}")
     except Exception as e:
         logging.exception(f"Exception occurred while sending message to MemGPT for user {telegram_user_id}: {str(e)}")
-        return "An error occurred while processing your message. Please try again later."
+        raise
+
+async def delete_memgpt_user(telegram_user_id: int):
+    agent_id = await get_user_agent_id(telegram_user_id)
+    if not agent_id:
+        logging.warning(f"No agent found for user {telegram_user_id} during deletion")
+        return True  # Consider it a success if there's no agent to delete
+
+    url = f"{MEMGPT_API_URL}/agents/{agent_id}"
+    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
+
+    response_text, status_code = await async_request('DELETE', url, headers=headers)
+
+    if status_code == 200:
+        logging.info(f"Successfully deleted MemGPT agent for user {telegram_user_id}")
+        return True
+    else:
+        logging.error(f"Failed to delete MemGPT agent for user {telegram_user_id}. Status code: {status_code}")
+        return False

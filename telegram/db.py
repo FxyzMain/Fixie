@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import postgrest.exceptions
 import asyncio
 import logging
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -122,3 +123,55 @@ async def delete_user(telegram_user_id: int):
     else:
         logging.info(f"Deleted user: {telegram_user_id}.")
         return True
+
+async def save_user_report(telegram_user_id: int, report_text: str):
+    loop = asyncio.get_event_loop()
+    try:
+        data, error = await loop.run_in_executor(None, lambda: supabase.table("user_reports").insert({
+            "telegram_user_id": telegram_user_id,
+            "report_text": report_text,
+            "status": "pending"  # Default status
+        }).execute())
+        if error and error[0] != 'count':  # Ignore 'count' errors
+            logging.error(f"Failed to save report for Telegram user ID {telegram_user_id}: {error}")
+            return False
+        else:
+            logging.info(f"Report saved successfully for Telegram user ID {telegram_user_id}.")
+            return True
+    except Exception as e:
+        logging.error(f"Exception occurred while saving report for Telegram user ID {telegram_user_id}: {e}")
+        return False
+
+async def get_user_reports(telegram_user_id: int):
+    loop = asyncio.get_event_loop()
+    try:
+        data, error = await loop.run_in_executor(None, lambda: supabase.table("user_reports")
+            .select("*")
+            .eq("telegram_user_id", telegram_user_id)
+            .order("created_at", desc=True)
+            .execute())
+        if error:
+            logging.error(f"Failed to retrieve reports for Telegram user ID {telegram_user_id}: {error}")
+            return None
+        else:
+            return data[1] if data and data[1] else []
+    except Exception as e:
+        logging.error(f"Exception occurred while retrieving reports for Telegram user ID {telegram_user_id}: {e}")
+        return None
+
+async def update_report_status(report_id: int, new_status: str):
+    loop = asyncio.get_event_loop()
+    try:
+        data, error = await loop.run_in_executor(None, lambda: supabase.table("user_reports")
+            .update({"status": new_status})
+            .eq("id", report_id)
+            .execute())
+        if error:
+            logging.error(f"Failed to update status for report ID {report_id}: {error}")
+            return False
+        else:
+            logging.info(f"Status updated successfully for report ID {report_id}.")
+            return True
+    except Exception as e:
+        logging.error(f"Exception occurred while updating status for report ID {report_id}: {e}")
+        return False
