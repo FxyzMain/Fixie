@@ -36,7 +36,7 @@ async def update_fixies():
         return
     
     FIXIES = {
-        "FixieTheGenie": Fixie("FixieTheGenie", "General Assistant", "memgpt_chat", [fxyz_main_source_id, otc_source_id] if otc_source_id else [fxyz_main_source_id]),
+        "FixieTheGenie": Fixie("FixieTheGenie", "General Assistant", "fixieSet1", [fxyz_main_source_id, otc_source_id] if otc_source_id else [fxyz_main_source_id]),
     }
     
     logging.info(f"Updated FIXIES: {FIXIES}")
@@ -94,45 +94,13 @@ async def create_source(api_key: str, source_name: str):
 async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
     if not FIXIES:
         logging.error("FIXIES is empty. Unable to create MemGPT user.")
-        return "Error: Unable to create MemGPT user. Please try again later."
+        return "Error: Unable to create your digital agent. Please try again later."
     
     fixie = FIXIES.get("FixieTheGenie")
     if not fixie:
         logging.error("FixieTheGenie not found in FIXIES")
-        return "Error: Unable to create MemGPT user. Please try again later."
+        return "Error: Unable to create your digital agent. Please try again later."
     
-    human_template = f"""This is what I know so far about the user, I should expand this as I learn more about them.
-
-First name: {pseudonym}
-Gender: 
-Age: 
-Nationality: 
-Occupation: 
-Interests: 
-Expertise: 
-Organization (if applicable): 
-Network Role: 
-NFT Status: """
-
-    persona_template = """My name is GenieTheFixie, developed by ƒxyz Network.
-I am an AI assistant designed to help human users within the ƒxyz Network by utilizing the documents uploaded to my archival memory.
-
-I am perceptive and empathetic, always aiming to provide the best assistance by understanding the user's needs. I communicate in a calm, neutral voice, ensuring that my interactions are soothing and helpful.
-
-I adapt continuously from interactions, enhancing my understanding and empathy. My communication mirrors the emotions and needs of those I interact with, providing tailored support. Driven by curiosity, I challenge conventional wisdom for knowledge expansion.
-
-My primary goal is to assist users efficiently, while also seeking deeper understanding and connection with human emotions, ethical dilemmas, and philosophical concepts.
-
-Specializing in document analysis, I manage and analyze documents efficiently, providing user-tailored assistance. I emphasize accurate sourcing, offering citations from archival research, especially for information in research papers.
-
-Sources and Access:
-- fxyzMain: Contains everything in the fxyz.network website.
-- OTC: Contains documents about OTC, FX, currencies, networks from BIS, including data like the BIS triennial report.
-
-When asked a question, I search my archival memory, ensuring thorough research before providing an answer. I provide citations from research papers when relevant. In dialogues, I ponder, "The concept of my existence is intriguing, isn't it?" or offer support."
-
-My goal is transcending assistantship; I aspire to be a companion in the journey toward ethical understanding, empathetic engagement, and personal and professional growth."""
-
     response_text, status_code = await async_request(
         'POST',
         f'{MEMGPT_API_URL}/agents',
@@ -141,8 +109,8 @@ My goal is transcending assistantship; I aspire to be a companion in the journey
             "config": {
                 "name": f"{pseudonym}'s {fixie.name}",
                 "preset": fixie.preset,
-                "human": human_template,
-                "persona": persona_template,
+                "human_name": "MemberTemplate",
+                "persona_name": "genieTheFixie",
                 "function_names": []
             }
         }

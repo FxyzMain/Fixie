@@ -39,7 +39,7 @@ async def start(message: Message, state: FSMContext):
         await message.answer("Welcome back! How can I assist you today?")
     else:
         await message.answer(
-            "Welcome to the fxyzNetwork! I'm FixieTheGenie, your digital assistant. "
+            "Welcome to the ƒxyzNetwork! I'm the FixieBot. I will help to create and manage the ƒixies "
             "Let's begin by creating your pseudonym. What name would you like to use within the network?"
         )
         await state.set_state(Form.awaiting_pseudonym)
@@ -50,20 +50,20 @@ async def process_pseudonym(message: Message, state: FSMContext):
     await save_user_pseudonym(message.from_user.id, pseudonym)
     
     await message.answer(
-        f"Great choice, {html.quote(pseudonym)}! I'm setting up your personalized Fixie assistant now. "
+        f"Great choice, {html.quote(pseudonym)}! I'm setting up your personalized digital agent now. "
         "This may take a moment, so please hang tight..."
     )
     
     result = await create_memgpt_user(message.from_user.id, pseudonym)
-    if result:
+    if result.startswith("MemGPT user setup completed"):
         await message.answer(
-            f"Your personalized Digital Agent is ready, {html.quote(pseudonym)}! "
-            "GenieTheFixie is here to help you navigate the fxyzNetwork. "
+            f"Your first personalized digital agent, Genie The Fixie, is ready, {html.quote(pseudonym)}! "
+            "Genie is here to help you navigate the ƒxyzNetwork. "
             "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
-            "Feel free to ask me anything about the network or how I can assist you!"
+            "Feel free to ask Genie anything about the network or how they can assist you!"
         )
     else:
-        await message.answer("I'm sorry, there was an error creating your agent. Please try again with /start.")
+        await message.answer(f"I'm sorry, there was an error creating your agent: {result}")
     await state.clear()
 
 @router.message(Command("help"))
@@ -95,7 +95,7 @@ async def handle_message(message: Message):
 
     agent_id = await get_user_agent_id(message.from_user.id)
     if not agent_id:
-        await message.answer("Your agent hasn't been set up properly. Please try /start again.")
+        await message.answer("Your Genie The Fixie agent hasn't been set up properly. Please try /start again.")
         return
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
