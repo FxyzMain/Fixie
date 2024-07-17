@@ -13,7 +13,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.bot import DefaultBotProperties
 from dotenv import load_dotenv
 
-from memgpt import create_memgpt_user, send_message_to_memgpt, update_fixies, delete_memgpt_user
+from memgpt import create_memgpt_user, send_message_to_memgpt, delete_memgpt_user, check_memgpt_server
 from db import save_user_pseudonym, get_user_info, get_user_agent_id, check_user_exists, delete_user, save_user_report
 
 load_dotenv()
@@ -31,44 +31,89 @@ class Form(StatesGroup):
     awaiting_pseudonym = State()
     awaiting_report = State()
 
-user_queues = defaultdict(asyncio.Queue)
+MAINTENANCE_MODE = False
+
+async def maintenance_message(message: Message):
+    await message.answer(
+        "⚠️ The bot is currently undergoing maintenance. "
+        "We apologize for the inconvenience and will be back soon! "
+        "For urgent matters, please contact @fixiesupport."
+    )
 
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext):
-    user_exists = await check_user_exists(message.from_user.id)
-    if user_exists:
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+
+    user_id = message.from_user.id
+    user_exists = await check_user_exists(user_id)
+    agent_id = await get_user_agent_id(user_id)
+
+    if user_exists and agent_id:
         await message.answer("Welcome back! How can I assist you today?")
+    elif user_exists and not agent_id:
+        await message.answer(
+            "Welcome back! It seems your digital agent wasn't set up properly last time. "
+            "Let's try again. What name would you like to use within the network?"
+        )
+        await state.set_state(Form.awaiting_pseudonym)
     else:
         await message.answer(
-            "Welcome to the ƒxyzNetwork! I'm the FixieBot. I will help to create and manage the ƒixies "
+            "Welcome to the ƒxyzNetwork! I'm the Fixie Bot. I will help to create and manage the ƒixies "
             "Let's begin by creating your pseudonym. What name would you like to use within the network?"
         )
         await state.set_state(Form.awaiting_pseudonym)
 
 @router.message(Form.awaiting_pseudonym)
 async def process_pseudonym(message: Message, state: FSMContext):
-    pseudonym = message.text
-    await save_user_pseudonym(message.from_user.id, pseudonym)
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+
+    user_id = message.from_user.id
+    user_exists = await check_user_exists(user_id)
     
+    if user_exists:
+        await message.answer("Welcome back! How can I assist you today?")
+        await state.clear()
+        return
+
+    pseudonym = message.text
+    await state.update_data(creating_user=True)
+    
+    save_result = await save_user_pseudonym(user_id, pseudonym)
+    
+    if not save_result:
+        await message.answer("I'm sorry, there was an error saving your pseudonym. Please try again later.")
+        await state.clear()
+        return
+
     await message.answer(
         f"Great choice, {html.quote(pseudonym)}! I'm setting up your personalized digital agent now. "
         "This may take a moment, so please hang tight..."
     )
     
-    result = await create_memgpt_user(message.from_user.id, pseudonym)
-    if result.startswith("MemGPT user setup completed"):
-        await message.answer(
-            f"Your first personalized digital agent, Genie The Fixie, is ready, {html.quote(pseudonym)}! "
-            "Genie is here to help you navigate the ƒxyzNetwork. "
-            "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
-            "Feel free to ask Genie anything about the network or how they can assist you!"
-        )
-    else:
-        await message.answer(f"I'm sorry, there was an error creating your agent: {result}")
-    await state.clear()
+    try:
+        result = await create_memgpt_user(user_id, pseudonym)
+        if result.startswith("MemGPT user setup completed"):
+            await message.answer(
+                f"Your first personalized digital agent, Genie The Fixie, is ready, {html.quote(pseudonym)}! "
+                "Genie is here to help you navigate the ƒxyzNetwork. "
+                "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
+                "Feel free to ask Genie anything about the network or how they can assist you!"
+            )
+        else:
+            await message.answer(f"I'm sorry, there was an error creating your agent: {result}")
+    finally:
+        await state.clear()
 
 @router.message(Command("help"))
 async def help_command(message: Message):
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+    
     await message.answer(
         "Here are the available commands:\n"
         "/start - Begin interaction or get a welcome message\n"
@@ -80,6 +125,10 @@ async def help_command(message: Message):
 
 @router.message(Command("delete"))
 async def delete_command(message: Message):
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Yes, delete my account", callback_data="confirm_delete")],
         [InlineKeyboardButton(text="No, keep my account", callback_data="cancel_delete")]
@@ -88,6 +137,10 @@ async def delete_command(message: Message):
 
 @router.callback_query(lambda c: c.data in ['confirm_delete', 'cancel_delete'])
 async def process_delete_callback(callback_query: types.CallbackQuery):
+    if MAINTENANCE_MODE:
+        await maintenance_message(callback_query.message)
+        return
+    
     if callback_query.data == "confirm_delete":
         user_id = callback_query.from_user.id
         deletion_result = await delete_user_data(user_id)
@@ -100,9 +153,7 @@ async def process_delete_callback(callback_query: types.CallbackQuery):
 
 async def delete_user_data(user_id: int):
     try:
-        # Delete from MemGPT
         memgpt_deletion = await delete_memgpt_user(user_id)
-        # Delete from database
         db_deletion = await delete_user(user_id)
         return memgpt_deletion and db_deletion
     except Exception as e:
@@ -111,37 +162,37 @@ async def delete_user_data(user_id: int):
 
 @router.message(Command("report"))
 async def report_command(message: Message, state: FSMContext):
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+    
     await message.answer("Please describe the issue you're experiencing or the help you need. Your report will be sent to our support team.")
     await state.set_state(Form.awaiting_report)
 
 @router.message(Form.awaiting_report)
 async def process_report(message: Message, state: FSMContext):
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+    
     report_text = message.text
     user_id = message.from_user.id
-    
-    # Save the report to the database
+        
     report_saved = await save_user_report(user_id, report_text)
-    
+        
     if report_saved:
         await message.answer("Thank you for your report. Our support team will review it and get back to you if necessary. If you need immediate assistance, please contact @fixiesupport.")
     else:
         await message.answer("I'm sorry, there was an error processing your report. Please try again later or contact @fixiesupport directly for assistance.")
-    
+        
     await state.clear()
-
-# Commenting out the /menu command handler for now
-# @router.message(Command("menu"))
-# async def menu_command(message: Message):
-#     await message.answer(
-#         "Here is the menu:\n"
-#         "1. Option 1\n"
-#         "2. Option 2\n"
-#         "3. Option 3\n"
-#         "Please choose an option."
-#     )
 
 @router.message()
 async def handle_message(message: Message):
+    if MAINTENANCE_MODE:
+        await maintenance_message(message)
+        return
+
     user_exists = await check_user_exists(message.from_user.id)
     if not user_exists:
         await message.answer("It seems you're not registered yet. Please start with /start to create your account.")
@@ -153,34 +204,32 @@ async def handle_message(message: Message):
         return
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await user_queues[message.from_user.id].put(message.text)
-
-async def process_message_queue():
-    while True:
-        for user_id, queue in user_queues.items():
-            if not queue.empty():
-                message_text = await queue.get()
-                try:
-                    response = await send_message_to_memgpt(user_id, message_text)
-                    await bot.send_message(user_id, response)
-                except Exception as e:
-                    logging.error(f"Error processing message for user {user_id}: {str(e)}")
-                    await bot.send_message(user_id, "I'm sorry, I encountered an error while processing your message. Please try again later or contact @fixiesupport.")
-        await asyncio.sleep(0.1)
+    await message.answer("I'm processing your message...")
 
 async def set_commands(bot: Bot):
-    commands = [
-        BotCommand(command="/start", description="Begin interaction or get a welcome message"),
-        BotCommand(command="/help", description="Show this help message"),
-        BotCommand(command="/delete", description="Delete your account"),
-        BotCommand(command="/report", description="Report a bug or get help"),
-    ]
+    if MAINTENANCE_MODE:
+        commands = [
+            BotCommand(command="/start", description="Maintenance information"),
+        ]
+    else:
+        commands = [
+            BotCommand(command="/start", description="Begin interaction or get a welcome message"),
+            BotCommand(command="/help", description="Show this help message"),
+            BotCommand(command="/delete", description="Delete your account"),
+            BotCommand(command="/report", description="Report a bug or get help"),
+        ]
     await bot.set_my_commands(commands)
 
 async def main():
-    await update_fixies()  # Ensure FIXIES is updated before starting the bot
+    global MAINTENANCE_MODE
+    memgpt_server_available = await check_memgpt_server()
+    if not memgpt_server_available:
+        MAINTENANCE_MODE = True
+        logging.warning("MemGPT server is not available. Bot is in maintenance mode.")
+    else:
+        MAINTENANCE_MODE = False
+    
     dp.include_router(router)
-    asyncio.create_task(process_message_queue())
     await set_commands(bot)  # Set the bot commands
     await dp.start_polling(bot)
 

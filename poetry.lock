@@ -6520,4 +6520,4 @@ server = ["fastapi", "uvicorn", "websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "<3.13,>=3.10"
-content-hash = "81933e2973d8be73a10d74841b5e4877470b7857648f01db97382a34aadfb2aa"
+content-hash = "0285bc73c133df4fd7ad3de90ee0c2fcae89b2413838de4dffa204063a75d63d"

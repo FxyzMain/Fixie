@@ -68,6 +68,7 @@ protobuf = "3.20.0"
 supabase = "^2.5.1"
 memgpt = "^0.1.0"
 aiogram = "^3.8.0"
+python-dotenv = "^1.0.1"
 
 [tool.poetry.extras]
 local = ["llama-index-embeddings-huggingface"]
