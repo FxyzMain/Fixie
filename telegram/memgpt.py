@@ -7,11 +7,15 @@ from dotenv import load_dotenv
 from db import save_user_agent_id, get_user_agent_id, check_user_exists, get_user_pseudonym, delete_user
 from tenacity import retry, stop_after_attempt, wait_fixed
 from memgpt.memory import BaseMemory, MemoryModule
+from memgpt.agent import Agent
+from memgpt.client import Client
 
 load_dotenv()
 
 MEMGPT_ADMIN_API_KEY = os.getenv("MEMGPT_SERVER_PASS")
 MEMGPT_API_URL = "http://localhost:8283/api"
+
+client = Client(api_key=MEMGPT_ADMIN_API_KEY, base_url=MEMGPT_API_URL)
 
 class FixieMemory(BaseMemory):
     def __init__(self, persona: str, human: str, fixie_role: str, limit: int = 2000):
@@ -58,20 +62,14 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
         fixie_role=fixie_role
     )
 
-    response_text, status_code = await async_request(
-        'POST',
-        f'{MEMGPT_API_URL}/agents',
-        headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}', 'Content-Type': 'application/json'},
-        json={
-            "name": f"{pseudonym}'s Genie",
-            "memory": memory,
-            "system_prompt": fixie_role,
-        }
-    )
-    
-    if status_code == 200:
-        agent_data = json.loads(response_text)
-        agent_id = agent_data['agent_state']['id']
+    try:
+        agent = client.create_agent(
+            name=f"{pseudonym}'s Genie",
+            memory=memory,
+            system_prompt=fixie_role,
+        )
+
+        agent_id = agent.id
         save_result = await save_user_agent_id(telegram_user_id, agent_id)
         if not save_result:
             logging.error(f"Failed to save agent ID for user {telegram_user_id}")
@@ -79,9 +77,9 @@ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
         
         logging.info(f"Created new agent for {pseudonym} with ID: {agent_id}")
         return f"MemGPT user setup completed. Genie The Fixie is ready to assist you!"
-    else:
-        logging.error(f"Error creating MemGPT user: {status_code} - {response_text}")
-        return f"Error: Failed to create MemGPT user. Status code: {status_code}"
+    except Exception as e:
+        logging.error(f"Error creating MemGPT user: {str(e)}")
+        return f"Error: Failed to create MemGPT user. {str(e)}"
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
@@ -94,35 +92,12 @@ async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
     logging.info(f"Sending message to MemGPT for user {telegram_user_id}, agent {agent_id}")
     
     try:
-        response_text, status_code = await async_request(
-            'POST',
-            f'{MEMGPT_API_URL}/agents/{agent_id}/messages',
-            headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}'},
-            json={'message': message_text, 'stream': True, 'role': 'user'}
-        )
-        
-        if status_code == 200:
-            assistant_message = None
-            for line in response_text.split('\n'):
-                if line.startswith('data:'):
-                    try:
-                        data = json.loads(line[len('data:'):])
-                        if 'assistant_message' in data:
-                            assistant_message = data['assistant_message']
-                            break
-                    except json.JSONDecodeError as e:
-                        logging.error(f"Error parsing JSON for user {telegram_user_id}: {e}")
-            
-            if assistant_message:
-                logging.info(f"Received response for user {telegram_user_id}, agent {agent_id}")
-                return assistant_message
-            else:
-                raise Exception("No assistant message found in response")
-        else:
-            raise Exception(f"Failed to send message to MemGPT. Status code: {status_code}")
+        agent = client.get_agent(agent_id)
+        response = agent.send_message(message_text)
+        return response.content
     except Exception as e:
-        logging.exception(f"Exception occurred while sending message to MemGPT for user {telegram_user_id}: {str(e)}")
-        raise
+        logging.error(f"Error processing message for user {telegram_user_id}: {str(e)}")
+        return "I'm sorry, I encountered an error while processing your message. Please try again later or contact @fixiesupport."
 
 async def delete_memgpt_user(telegram_user_id: int):
     agent_id = await get_user_agent_id(telegram_user_id)
