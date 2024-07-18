@@ -16,7 +16,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 logging.basicConfig(level=logging.INFO)
 
-async def get_user_agent_id(telegram_user_id: int):
+async def get_user_agent_id(telegram_user_id: int) -> str:
     loop = asyncio.get_event_loop()
     data, error = await loop.run_in_executor(None, lambda: supabase.table("users3").select("agent_id").eq("telegram_user_id", telegram_user_id).execute())
     logging.info(f"Data fetched for agent_id: {data}, Error: {error}")
@@ -33,15 +33,21 @@ async def get_user_agent_id(telegram_user_id: int):
 async def save_user_agent_id(telegram_user_id: int, agent_id: str):
     loop = asyncio.get_event_loop()
     try:
+        logging.info(f"Attempting to save agent ID {agent_id} for Telegram user ID {telegram_user_id}")
         data, error = await loop.run_in_executor(None, lambda: supabase.table("users3").update({"agent_id": agent_id}).eq("telegram_user_id", telegram_user_id).execute())
-        if error and error[0] != 'count':
-            logging.error(f"Failed to update agent ID for Telegram user ID {telegram_user_id}: {error}")
+        logging.info(f"Supabase response - Data: {data}, Error: {error}")
+        
+        if error and not isinstance(error, tuple):
+            logging.error(f"Failed to save agent ID for Telegram user ID {telegram_user_id}: {error}")
             return False
-        else:
-            logging.info(f"Agent ID {agent_id} updated successfully for Telegram user ID {telegram_user_id}.")
+        elif data and len(data[1]) > 0:
+            logging.info(f"Agent ID {agent_id} saved successfully for Telegram user ID {telegram_user_id}.")
             return True
+        else:
+            logging.warning(f"No rows updated when saving agent ID for Telegram user ID {telegram_user_id}")
+            return False
     except Exception as e:
-        logging.error(f"An error occurred while saving agent ID: {e}")
+        logging.exception(f"Exception occurred while saving agent ID for Telegram user ID {telegram_user_id}: {e}")
         return False
 
 async def get_memgpt_user_id(telegram_user_id: int) -> str:

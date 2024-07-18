@@ -1,3 +1,4 @@
+import aiohttp
 import asyncio
 import logging
 from os import getenv
@@ -200,11 +201,12 @@ async def handle_message(message: Message):
 
     agent_id = await get_user_agent_id(message.from_user.id)
     if not agent_id:
-        await message.answer("Your Genie The Fixie agent hasn't been set up properly. Please try /start again.")
+        await message.answer("It seems your digital agent isn't set up properly. Please use /start to set up your account again.")
         return
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await message.answer("I'm processing your message...")
+    response = await send_message_to_memgpt(message.from_user.id, message.text)
+    await message.answer(response)
 
 async def set_commands(bot: Bot):
     if MAINTENANCE_MODE:
@@ -222,12 +224,16 @@ async def set_commands(bot: Bot):
 
 async def main():
     global MAINTENANCE_MODE
+    logging.info("Checking MemGPT server availability...")
     memgpt_server_available = await check_memgpt_server()
+    logging.info(f"MemGPT server available: {memgpt_server_available}")
+    
     if not memgpt_server_available:
         MAINTENANCE_MODE = True
         logging.warning("MemGPT server is not available. Bot is in maintenance mode.")
     else:
         MAINTENANCE_MODE = False
+        logging.info("MemGPT server is available. Bot is in normal operation mode.")
     
     dp.include_router(router)
     await set_commands(bot)  # Set the bot commands
