@@ -13,6 +13,14 @@ from memgpt.constants import DEFAULT_HUMAN, DEFAULT_PERSONA
 from memgpt.utils import get_human_text, get_persona_text, get_utc_time
 
 
+class OptionState(str, Enum):
+    """Useful for kwargs that are bool + default option"""
+
+    YES = "yes"
+    NO = "no"
+    DEFAULT = "default"
+
+
 class MemGPTUsageStatistics(BaseModel):
     completion_tokens: int
     prompt_tokens: int
@@ -183,3 +191,7 @@ class DocumentModel(BaseModel):
     data_source: str = Field(..., description="The data source of the document.")
     id: uuid.UUID = Field(default_factory=uuid.uuid4, description="The unique identifier of the document.", primary_key=True)
     metadata: Optional[Dict] = Field({}, description="The metadata of the document.")
+
+
+class UserModel(BaseModel):
+    user_id: uuid.UUID = Field(..., description="The unique identifier of the user.")

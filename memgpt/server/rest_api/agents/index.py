@@ -51,7 +51,7 @@ def setup_agents_index_router(server: SyncServer, interface: QueuingInterface, p
         This endpoint retrieves a list of all agents and their configurations associated with the specified user ID.
         """
         interface.clear()
-        agents_data = server.list_agents(user_id=user_id)
+        agents_data = server.list_agents_legacy(user_id=user_id)
         return ListAgentsResponse(**agents_data)
 
     @router.post("/agents", tags=["agents"], response_model=CreateAgentResponse)
@@ -87,6 +87,7 @@ def setup_agents_index_router(server: SyncServer, interface: QueuingInterface, p
         assert isinstance(tool_names, list), "Tool names must be a list of strings."
 
         # TODO: eventually remove this - should support general memory at the REST endpoint
+        # TODO: the REST server should add default memory tools at startup time
         memory = ChatMemory(persona=persona, human=human)
 
         try:
@@ -96,6 +97,7 @@ def setup_agents_index_router(server: SyncServer, interface: QueuingInterface, p
                 # TODO turn into a pydantic model
                 name=request.config["name"],
                 memory=memory,
+                system=request.config.get("system", None),
                 # persona_name=persona_name,
                 # human_name=human_name,
                 # persona=persona,
@@ -120,7 +122,7 @@ def setup_agents_index_router(server: SyncServer, interface: QueuingInterface, p
                     embedding_config=embedding_config,
                     state=agent_state.state,
                     created_at=int(agent_state.created_at.timestamp()),
-                    tools=tool_names,
+                    tools=agent_state.tools,
                     system=agent_state.system,
                     metadata=agent_state._metadata,
                 ),

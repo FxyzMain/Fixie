@@ -1,0 +1,37 @@
+Hello fxyz Network,
+
+We’re excited to introduce the Fixies Ecosystem, starting with GenieTheFixie, your first digital agent designed to enhance how you interact within our network.
+
+About Fixies:
+
+Fixies are digital agents within the fxyz Network, each with unique personas and specialized roles. They help manage various tasks and provide valuable insights and assistance. GenieTheFixie is the first of many Fixies that will evolve based on your feedback and the needs of the network.
+
+Introducing GenieTheFixie:
+
+GenieTheFixie is here to answer your questions and gather insights into your needs. Currently, you can interact with Genie through the FixieBot, and in the future, Genie will have its own dedicated handle for direct communication.
+
+Features:
+
+	1.	Information Access: Easily get information about the network from Genie.
+	2.	Adaptive Growth: Your feedback shapes how Genie and future Fixies develop.
+	3.	Foundation for More: Genie is the start. We’re planning a range of specialized Fixies that will offer in-depth insights and functionalities.
+
+How to Use GenieTheFixie:
+
+To begin, visit @fixiethebot and type /start.
+
+Feedback:
+
+Your experiences and suggestions are crucial. Share them through Genie or @fixiesupport.
+
+Key Updates:
+
+	•	Continuous Improvement: Our network is always improving. Your input directly influences our development.
+	•	Expect Fluctuations: As with any evolving system, occasional issues may arise. We appreciate your patience as we refine our tools.
+	•	Visual Tools, Tokens, and NFTs: We’re enhancing your experience with graph technology visualizations, blockchain technologies, and NFTs. These tools not only make interactions more engaging but also help formalize your connections within the network.
+
+Looking Forward:
+
+With upcoming products and a variety of new Fixies tailored to different topics and regions, we’re just getting started. These tools will offer new ways to engage and capitalize on what our network offers.
+
+The Collective at fxyz Network

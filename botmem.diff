@@ -1,0 +1,530 @@
+diff --git a/telegram/bot.py b/telegram/bot.py
+index eb4e40d..6061e4d 100644
+--- a/telegram/bot.py
++++ b/telegram/bot.py
+@@ -13,7 +13,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
+ from aiogram.client.bot import DefaultBotProperties
+ from dotenv import load_dotenv
+ 
+-from memgpt import create_memgpt_user, send_message_to_memgpt, update_fixies, delete_memgpt_user
++from memgpt import create_memgpt_user, send_message_to_memgpt, delete_memgpt_user, check_memgpt_server
+ from db import save_user_pseudonym, get_user_info, get_user_agent_id, check_user_exists, delete_user, save_user_report
+ 
+ load_dotenv()
+@@ -31,44 +31,89 @@ class Form(StatesGroup):
+     awaiting_pseudonym = State()
+     awaiting_report = State()
+ 
+-user_queues = defaultdict(asyncio.Queue)
++MAINTENANCE_MODE = False
++
++async def maintenance_message(message: Message):
++    await message.answer(
++        "⚠️ The bot is currently undergoing maintenance. "
++        "We apologize for the inconvenience and will be back soon! "
++        "For urgent matters, please contact @fixiesupport."
++    )
+ 
+ @router.message(CommandStart())
+ async def start(message: Message, state: FSMContext):
+-    user_exists = await check_user_exists(message.from_user.id)
+-    if user_exists:
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++
++    user_id = message.from_user.id
++    user_exists = await check_user_exists(user_id)
++    agent_id = await get_user_agent_id(user_id)
++
++    if user_exists and agent_id:
+         await message.answer("Welcome back! How can I assist you today?")
++    elif user_exists and not agent_id:
++        await message.answer(
++            "Welcome back! It seems your digital agent wasn't set up properly last time. "
++            "Let's try again. What name would you like to use within the network?"
++        )
++        await state.set_state(Form.awaiting_pseudonym)
+     else:
+         await message.answer(
+-            "Welcome to the ƒxyzNetwork! I'm the FixieBot. I will help to create and manage the ƒixies "
++            "Welcome to the ƒxyzNetwork! I'm the Fixie Bot. I will help to create and manage the ƒixies "
+             "Let's begin by creating your pseudonym. What name would you like to use within the network?"
+         )
+         await state.set_state(Form.awaiting_pseudonym)
+ 
+ @router.message(Form.awaiting_pseudonym)
+ async def process_pseudonym(message: Message, state: FSMContext):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++
++    user_id = message.from_user.id
++    user_exists = await check_user_exists(user_id)
++    
++    if user_exists:
++        await message.answer("Welcome back! How can I assist you today?")
++        await state.clear()
++        return
++
+     pseudonym = message.text
+-    await save_user_pseudonym(message.from_user.id, pseudonym)
++    await state.update_data(creating_user=True)
++    
++    save_result = await save_user_pseudonym(user_id, pseudonym)
+     
++    if not save_result:
++        await message.answer("I'm sorry, there was an error saving your pseudonym. Please try again later.")
++        await state.clear()
++        return
++
+     await message.answer(
+         f"Great choice, {html.quote(pseudonym)}! I'm setting up your personalized digital agent now. "
+         "This may take a moment, so please hang tight..."
+     )
+     
+-    result = await create_memgpt_user(message.from_user.id, pseudonym)
+-    if result.startswith("MemGPT user setup completed"):
+-        await message.answer(
+-            f"Your first personalized digital agent, Genie The Fixie, is ready, {html.quote(pseudonym)}! "
+-            "Genie is here to help you navigate the ƒxyzNetwork. "
+-            "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
+-            "Feel free to ask Genie anything about the network or how they can assist you!"
+-        )
+-    else:
+-        await message.answer(f"I'm sorry, there was an error creating your agent: {result}")
+-    await state.clear()
++    try:
++        result = await create_memgpt_user(user_id, pseudonym)
++        if result.startswith("MemGPT user setup completed"):
++            await message.answer(
++                f"Your first personalized digital agent, Genie The Fixie, is ready, {html.quote(pseudonym)}! "
++                "Genie is here to help you navigate the ƒxyzNetwork. "
++                "Your custom NFT will be minted soon, allowing you to fully engage with the network. "
++                "Feel free to ask Genie anything about the network or how they can assist you!"
++            )
++        else:
++            await message.answer(f"I'm sorry, there was an error creating your agent: {result}")
++    finally:
++        await state.clear()
+ 
+ @router.message(Command("help"))
+ async def help_command(message: Message):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++    
+     await message.answer(
+         "Here are the available commands:\n"
+         "/start - Begin interaction or get a welcome message\n"
+@@ -80,6 +125,10 @@ async def help_command(message: Message):
+ 
+ @router.message(Command("delete"))
+ async def delete_command(message: Message):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++    
+     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+         [InlineKeyboardButton(text="Yes, delete my account", callback_data="confirm_delete")],
+         [InlineKeyboardButton(text="No, keep my account", callback_data="cancel_delete")]
+@@ -88,6 +137,10 @@ async def delete_command(message: Message):
+ 
+ @router.callback_query(lambda c: c.data in ['confirm_delete', 'cancel_delete'])
+ async def process_delete_callback(callback_query: types.CallbackQuery):
++    if MAINTENANCE_MODE:
++        await maintenance_message(callback_query.message)
++        return
++    
+     if callback_query.data == "confirm_delete":
+         user_id = callback_query.from_user.id
+         deletion_result = await delete_user_data(user_id)
+@@ -100,9 +153,7 @@ async def process_delete_callback(callback_query: types.CallbackQuery):
+ 
+ async def delete_user_data(user_id: int):
+     try:
+-        # Delete from MemGPT
+         memgpt_deletion = await delete_memgpt_user(user_id)
+-        # Delete from database
+         db_deletion = await delete_user(user_id)
+         return memgpt_deletion and db_deletion
+     except Exception as e:
+@@ -111,37 +162,37 @@ async def delete_user_data(user_id: int):
+ 
+ @router.message(Command("report"))
+ async def report_command(message: Message, state: FSMContext):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++    
+     await message.answer("Please describe the issue you're experiencing or the help you need. Your report will be sent to our support team.")
+     await state.set_state(Form.awaiting_report)
+ 
+ @router.message(Form.awaiting_report)
+ async def process_report(message: Message, state: FSMContext):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++    
+     report_text = message.text
+     user_id = message.from_user.id
+-    
+-    # Save the report to the database
++        
+     report_saved = await save_user_report(user_id, report_text)
+-    
++        
+     if report_saved:
+         await message.answer("Thank you for your report. Our support team will review it and get back to you if necessary. If you need immediate assistance, please contact @fixiesupport.")
+     else:
+         await message.answer("I'm sorry, there was an error processing your report. Please try again later or contact @fixiesupport directly for assistance.")
+-    
++        
+     await state.clear()
+ 
+-# Commenting out the /menu command handler for now
+-# @router.message(Command("menu"))
+-# async def menu_command(message: Message):
+-#     await message.answer(
+-#         "Here is the menu:\n"
+-#         "1. Option 1\n"
+-#         "2. Option 2\n"
+-#         "3. Option 3\n"
+-#         "Please choose an option."
+-#     )
+-
+ @router.message()
+ async def handle_message(message: Message):
++    if MAINTENANCE_MODE:
++        await maintenance_message(message)
++        return
++
+     user_exists = await check_user_exists(message.from_user.id)
+     if not user_exists:
+         await message.answer("It seems you're not registered yet. Please start with /start to create your account.")
+@@ -153,34 +204,32 @@ async def handle_message(message: Message):
+         return
+ 
+     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+-    await user_queues[message.from_user.id].put(message.text)
+-
+-async def process_message_queue():
+-    while True:
+-        for user_id, queue in user_queues.items():
+-            if not queue.empty():
+-                message_text = await queue.get()
+-                try:
+-                    response = await send_message_to_memgpt(user_id, message_text)
+-                    await bot.send_message(user_id, response)
+-                except Exception as e:
+-                    logging.error(f"Error processing message for user {user_id}: {str(e)}")
+-                    await bot.send_message(user_id, "I'm sorry, I encountered an error while processing your message. Please try again later or contact @fixiesupport.")
+-        await asyncio.sleep(0.1)
++    await message.answer("I'm processing your message...")
+ 
+ async def set_commands(bot: Bot):
+-    commands = [
+-        BotCommand(command="/start", description="Begin interaction or get a welcome message"),
+-        BotCommand(command="/help", description="Show this help message"),
+-        BotCommand(command="/delete", description="Delete your account"),
+-        BotCommand(command="/report", description="Report a bug or get help"),
+-    ]
++    if MAINTENANCE_MODE:
++        commands = [
++            BotCommand(command="/start", description="Maintenance information"),
++        ]
++    else:
++        commands = [
++            BotCommand(command="/start", description="Begin interaction or get a welcome message"),
++            BotCommand(command="/help", description="Show this help message"),
++            BotCommand(command="/delete", description="Delete your account"),
++            BotCommand(command="/report", description="Report a bug or get help"),
++        ]
+     await bot.set_my_commands(commands)
+ 
+ async def main():
+-    await update_fixies()  # Ensure FIXIES is updated before starting the bot
++    global MAINTENANCE_MODE
++    memgpt_server_available = await check_memgpt_server()
++    if not memgpt_server_available:
++        MAINTENANCE_MODE = True
++        logging.warning("MemGPT server is not available. Bot is in maintenance mode.")
++    else:
++        MAINTENANCE_MODE = False
++    
+     dp.include_router(router)
+-    asyncio.create_task(process_message_queue())
+     await set_commands(bot)  # Set the bot commands
+     await dp.start_polling(bot)
+ 
+diff --git a/telegram/memgpt.py b/telegram/memgpt.py
+index 7857218..4202123 100644
+--- a/telegram/memgpt.py
++++ b/telegram/memgpt.py
+@@ -6,158 +6,80 @@ import os
+ from dotenv import load_dotenv
+ from db import save_user_agent_id, get_user_agent_id, check_user_exists, get_user_pseudonym, delete_user
+ from tenacity import retry, stop_after_attempt, wait_fixed
++from memgpt.memory import BaseMemory, MemoryModule
++from memgpt.agent import Agent
++from memgpt.client import Client
+ 
+ load_dotenv()
+ 
+ MEMGPT_ADMIN_API_KEY = os.getenv("MEMGPT_SERVER_PASS")
+ MEMGPT_API_URL = "http://localhost:8283/api"
+ 
+-FIXIES = {}
++client = Client(api_key=MEMGPT_ADMIN_API_KEY, base_url=MEMGPT_API_URL)
+ 
+-class Fixie:
+-    def __init__(self, name, role, preset, data_sources):
+-        self.name = name
+-        self.role = role
+-        self.preset = preset
+-        self.data_sources = data_sources
++class FixieMemory(BaseMemory):
++    def __init__(self, persona: str, human: str, fixie_role: str, limit: int = 2000):
++        self.memory = {
++            "persona": MemoryModule(name="persona", value=persona, limit=limit),
++            "human": MemoryModule(name="human", value=human, limit=limit),
++            "fixie_role": MemoryModule(name="fixie_role", value=fixie_role, limit=limit),
++        }
+ 
+-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+-async def async_request(method, url, **kwargs):
+-    async with aiohttp.ClientSession() as session:
+-        async with session.request(method, url, **kwargs) as response:
+-            return await response.text(), response.status
+-
+-async def update_fixies():
+-    global FIXIES
+-    logging.info("Updating FIXIES...")
+-    fxyz_main_source_id = await get_or_create_source_by_name("fxyzMain")
+-    otc_source_id = await get_or_create_source_by_name("OTC")
+-    
+-    if fxyz_main_source_id is None and otc_source_id is None:
+-        logging.error("Failed to get or create both sources. Cannot update FIXIES.")
+-        return
+-    
+-    FIXIES = {
+-        "FixieTheGenie": Fixie("FixieTheGenie", "General Assistant", "fixieSet1", [fxyz_main_source_id, otc_source_id] if otc_source_id else [fxyz_main_source_id]),
+-    }
+-    
+-    logging.info(f"Updated FIXIES: {FIXIES}")
++    def core_memory_append(self, name: str, content: str) -> Optional[str]:
++        """
++        Append to the contents of core memory.
+ 
+-async def get_or_create_source_by_name(source_name: str):
+-    source_id = await get_source_id_by_name(source_name)
+-    if source_id:
+-        return source_id
+-    
+-    logging.info(f"Source {source_name} not found, attempting to create new source")
+-    try:
+-        return await create_source(MEMGPT_ADMIN_API_KEY, source_name)
+-    except Exception as e:
+-        logging.error(f"Error creating source {source_name}: {str(e)}")
++        Args:
++            name (str): Section of the memory to be edited (persona, human, or fixie_role).
++            content (str): Content to write to the memory. All unicode (including emojis) are supported.
++
++        Returns:
++            Optional[str]: None is always returned as this function does not produce a response.
++        """
++        self.memory[name].value += "\n" + content
+         return None
+ 
+-async def get_source_id_by_name(source_name: str):
+-    url = f"{MEMGPT_API_URL}/sources"
+-    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
++    def core_memory_replace(self, name: str, old_content: str, new_content: str) -> Optional[str]:
++        """
++        Replace the contents of core memory. To delete memories, use an empty string for new_content.
+ 
+-    response_text, status_code = await async_request('GET', url, headers=headers)
+-    
+-    if status_code == 200:
+-        data = json.loads(response_text)
+-        sources = data.get('sources', [])
+-        for source in sources:
+-            if source.get('name') == source_name:
+-                return source.get('id')
+-    else:
+-        logging.error(f"Error fetching sources: {status_code}")
+-    return None
+-
+-async def create_source(api_key: str, source_name: str):
+-    url = f"{MEMGPT_API_URL}/sources"
+-    headers = {
+-        "accept": "application/json",
+-        "content-type": "application/json",
+-        "authorization": f"Bearer {api_key}"
+-    }
+-    payload = {"name": source_name}
+-    
+-    response_text, status_code = await async_request('POST', url, headers=headers, json=payload)
+-    
+-    if status_code == 200:
+-        response_data = json.loads(response_text)
+-        logging.info(f"Successfully created source: {source_name}")
+-        return response_data.get('id')
+-    elif status_code == 500 and "already exists" in response_text:
+-        logging.info(f"Source {source_name} already exists, fetching its ID")
+-        return await get_source_id_by_name(source_name)
+-    else:
+-        logging.error(f"Failed to create source {source_name}. Status code: {status_code}, Response: {response_text}")
++        Args:
++            name (str): Section of the memory to be edited (persona, human, or fixie_role).
++            old_content (str): String to replace. Must be an exact match.
++            new_content (str): Content to write to the memory. All unicode (including emojis) are supported.
++
++        Returns:
++            Optional[str]: None is always returned as this function does not produce a response.
++        """
++        self.memory[name].value = self.memory[name].value.replace(old_content, new_content)
+         return None
+ 
+ async def create_memgpt_user(telegram_user_id: int, pseudonym: str):
+-    if not FIXIES:
+-        logging.error("FIXIES is empty. Unable to create MemGPT user.")
+-        return "Error: Unable to create your digital agent. Please try again later."
+-    
+-    fixie = FIXIES.get("FixieTheGenie")
+-    if not fixie:
+-        logging.error("FixieTheGenie not found in FIXIES")
+-        return "Error: Unable to create your digital agent. Please try again later."
+-    
+-    response_text, status_code = await async_request(
+-        'POST',
+-        f'{MEMGPT_API_URL}/agents',
+-        headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}', 'Content-Type': 'application/json'},
+-        json={
+-            "config": {
+-                "name": f"{pseudonym}'s {fixie.name}",
+-                "preset": fixie.preset,
+-                "human_name": "MemberTemplate",
+-                "persona_name": "genieTheFixie",
+-                "function_names": []
+-            }
+-        }
++    fixie_role = "You are Genie The Fixie, a general assistant for the ƒxyzNetwork."
++    memory = FixieMemory(
++        persona="I am Genie The Fixie, a helpful assistant for the ƒxyzNetwork.",
++        human=f"I am {pseudonym}, a member of the ƒxyzNetwork.",
++        fixie_role=fixie_role
+     )
+-    
+-    if status_code == 200:
+-        agent_data = json.loads(response_text)
+-        agent_id = agent_data['agent_state']['id']
++
++    try:
++        agent = client.create_agent(
++            name=f"{pseudonym}'s Genie",
++            memory=memory,
++            system_prompt=fixie_role,
++        )
++
++        agent_id = agent.id
+         save_result = await save_user_agent_id(telegram_user_id, agent_id)
+         if not save_result:
+             logging.error(f"Failed to save agent ID for user {telegram_user_id}")
+             return "Error: Failed to save your agent information. Please try again later."
+         
+         logging.info(f"Created new agent for {pseudonym} with ID: {agent_id}")
+-        
+-        await asyncio.sleep(2)
+-        
+-        attachment_results = [await attach_source(agent_id, source_id) for source_id in fixie.data_sources if source_id]
+-        
+-        if all(attachment_results):
+-            return f"MemGPT user setup completed. {fixie.name} is ready to assist you!"
+-        elif any(attachment_results):
+-            return f"MemGPT user created, but some data sources couldn't be attached. {fixie.name} may have limited knowledge."
+-        else:
+-            return f"MemGPT user created, but no data sources were attached. {fixie.name} may have limited knowledge."
+-    else:
+-        logging.error(f"Error creating MemGPT user: {status_code} - {response_text}")
+-        return f"Error: Failed to create MemGPT user. Status code: {status_code}"
+-
+-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+-async def attach_source(agent_id: str, source_id: str):
+-    url = f"{MEMGPT_API_URL}/sources/{source_id}/attach?agent_id={agent_id}"
+-    headers = {"accept": "application/json", "authorization": f"Bearer {MEMGPT_ADMIN_API_KEY}"}
+-    
+-    response_text, status_code = await async_request('POST', url, headers=headers)
+-    
+-    if status_code == 200:
+-        logging.info(f"Source {source_id} attached successfully to agent {agent_id}.")
+-        return True
+-    elif status_code == 500 and "agent_id does not exist" in response_text:
+-        logging.warning(f"Agent {agent_id} not found. Retrying...")
+-        raise Exception("Agent not found")
+-    else:
+-        logging.error(f"Failed to attach source {source_id} to agent {agent_id}. Status code: {status_code}")
+-        return False
++        return f"MemGPT user setup completed. Genie The Fixie is ready to assist you!"
++    except Exception as e:
++        logging.error(f"Error creating MemGPT user: {str(e)}")
++        return f"Error: Failed to create MemGPT user. {str(e)}"
+ 
+ @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+ async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
+@@ -170,35 +92,12 @@ async def send_message_to_memgpt(telegram_user_id: int, message_text: str):
+     logging.info(f"Sending message to MemGPT for user {telegram_user_id}, agent {agent_id}")
+     
+     try:
+-        response_text, status_code = await async_request(
+-            'POST',
+-            f'{MEMGPT_API_URL}/agents/{agent_id}/messages',
+-            headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}'},
+-            json={'agent_id': agent_id, 'message': message_text, 'stream': True, 'role': 'user'}
+-        )
+-        
+-        if status_code == 200:
+-            assistant_message = None
+-            for line in response_text.split('\n'):
+-                if line.startswith('data:'):
+-                    try:
+-                        data = json.loads(line[len('data:'):])
+-                        if 'assistant_message' in data:
+-                            assistant_message = data['assistant_message']
+-                            break
+-                    except json.JSONDecodeError as e:
+-                        logging.error(f"Error parsing JSON for user {telegram_user_id}: {e}")
+-            
+-            if assistant_message:
+-                logging.info(f"Received response for user {telegram_user_id}, agent {agent_id}")
+-                return assistant_message
+-            else:
+-                raise Exception("No assistant message found in response")
+-        else:
+-            raise Exception(f"Failed to send message to MemGPT. Status code: {status_code}")
++        agent = client.get_agent(agent_id)
++        response = agent.send_message(message_text)
++        return response.content
+     except Exception as e:
+-        logging.exception(f"Exception occurred while sending message to MemGPT for user {telegram_user_id}: {str(e)}")
+-        raise
++        logging.error(f"Error processing message for user {telegram_user_id}: {str(e)}")
++        return "I'm sorry, I encountered an error while processing your message. Please try again later or contact @fixiesupport."
+ 
+ async def delete_memgpt_user(telegram_user_id: int):
+     agent_id = await get_user_agent_id(telegram_user_id)
+@@ -216,4 +115,13 @@ async def delete_memgpt_user(telegram_user_id: int):
+         return True
+     else:
+         logging.error(f"Failed to delete MemGPT agent for user {telegram_user_id}. Status code: {status_code}")
++        return False
++
++async def check_memgpt_server():
++    try:
++        # Replace this with an actual health check endpoint of your MemGPT server
++        response_text, status_code = await async_request('GET', f'{MEMGPT_API_URL}/health', headers={'Authorization': f'Bearer {MEMGPT_ADMIN_API_KEY}'})
++        return status_code == 200
++    except Exception as e:
++        logging.error(f"Error checking MemGPT server: {str(e)}")
+         return False
+\ No newline at end of file

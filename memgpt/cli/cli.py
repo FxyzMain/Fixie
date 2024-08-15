@@ -24,6 +24,7 @@ from memgpt.log import get_logger
 from memgpt.memory import ChatMemory
 from memgpt.metadata import MetadataStore
 from memgpt.migrate import migrate_all_agents, migrate_all_sources
+from memgpt.models.pydantic_models import OptionState
 from memgpt.server.constants import WS_DEFAULT_PORT
 from memgpt.server.server import logger as server_logger
 
@@ -394,6 +395,8 @@ def run(
     persona: Annotated[Optional[str], typer.Option(help="Specify persona")] = None,
     agent: Annotated[Optional[str], typer.Option(help="Specify agent name")] = None,
     human: Annotated[Optional[str], typer.Option(help="Specify human")] = None,
+    system: Annotated[Optional[str], typer.Option(help="Specify system prompt (raw text)")] = None,
+    system_file: Annotated[Optional[str], typer.Option(help="Specify raw text file containing system prompt")] = None,
     # model flags
     model: Annotated[Optional[str], typer.Option(help="Specify the LLM model")] = None,
     model_wrapper: Annotated[Optional[str], typer.Option(help="Specify the LLM model wrapper")] = None,
@@ -402,6 +405,9 @@ def run(
     context_window: Annotated[
         Optional[int], typer.Option(help="The context window of the LLM you are using (e.g. 8k for most Mistral 7B variants)")
     ] = None,
+    core_memory_limit: Annotated[
+        Optional[int], typer.Option(help="The character limit to each core-memory section (human/persona).")
+    ] = 2000,
     # other
     first: Annotated[bool, typer.Option(help="Use --first to send the first message in the sequence")] = False,
     strip_ui: Annotated[bool, typer.Option(help="Remove all the bells and whistles in CLI output (helpful for testing)")] = False,
@@ -410,6 +416,10 @@ def run(
     yes: Annotated[bool, typer.Option("-y", help="Skip confirmation prompt and use defaults")] = False,
     # streaming
     stream: Annotated[bool, typer.Option(help="Enables message streaming in the CLI (if the backend supports it)")] = False,
+    # whether or not to put the inner thoughts inside the function args
+    no_content: Annotated[
+        OptionState, typer.Option(help="Set to 'yes' for LLM APIs that omit the `content` field during tool calling")
+    ] = OptionState.DEFAULT,
 ):
     """Start chatting with an MemGPT agent
 
@@ -576,6 +586,16 @@ def run(
             )
             agent_state.llm_config.model_endpoint_type = model_endpoint_type
 
+        # NOTE: commented out because this seems dangerous - instead users should use /systemswap when in the CLI
+        # # user specified a new system prompt
+        # if system:
+        #     # NOTE: agent_state.system is the ORIGINAL system prompt,
+        #     #       whereas agent_state.state["system"] is the LATEST system prompt
+        #     existing_system_prompt = agent_state.state["system"] if "system" in agent_state.state else None
+        #     if existing_system_prompt != system:
+        #         # override
+        #         agent_state.state["system"] = system
+
         # Update the agent with any overrides
         ms.update_agent(agent_state)
         tools = []
@@ -630,12 +650,22 @@ def run(
             client = create_client()
             human_obj = ms.get_human(human, user.id)
             persona_obj = ms.get_persona(persona, user.id)
+            # TODO pull system prompts from the metadata store
+            # NOTE: will be overriden later to a default
+            if system_file:
+                try:
+                    with open(system_file, "r", encoding="utf-8") as file:
+                        system = file.read().strip()
+                        printd("Loaded system file successfully.")
+                except FileNotFoundError:
+                    typer.secho(f"System file not found at {system_file}", fg=typer.colors.RED)
+            system_prompt = system if system else None
             if human_obj is None:
                 typer.secho("Couldn't find human {human} in database, please run `memgpt add human`", fg=typer.colors.RED)
             if persona_obj is None:
                 typer.secho("Couldn't find persona {persona} in database, please run `memgpt add persona`", fg=typer.colors.RED)
 
-            memory = ChatMemory(human=human_obj.text, persona=persona_obj.text)
+            memory = ChatMemory(human=human_obj.text, persona=persona_obj.text, limit=core_memory_limit)
             metadata = {"human": human_obj.name, "persona": persona_obj.name}
 
             typer.secho(f"->  🤖 Using persona profile: '{persona_obj.name}'", fg=typer.colors.WHITE)
@@ -644,6 +674,7 @@ def run(
             # add tools
             agent_state = client.create_agent(
                 name=agent_name,
+                system_prompt=system_prompt,
                 embedding_config=embedding_config,
                 llm_config=llm_config,
                 memory=memory,
@@ -671,7 +702,13 @@ def run(
 
     print()  # extra space
     run_agent_loop(
-        memgpt_agent=memgpt_agent, config=config, first=first, ms=ms, no_verify=no_verify, stream=stream
+        memgpt_agent=memgpt_agent,
+        config=config,
+        first=first,
+        ms=ms,
+        no_verify=no_verify,
+        stream=stream,
+        inner_thoughts_in_kwargs=no_content,
     )  # TODO: add back no_verify
 
 

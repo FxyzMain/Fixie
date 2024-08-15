@@ -1,0 +1,13 @@
+This is what I know so far about the user, I should expand this as I learn more about them.
+
+Pseudonym: {pseudonym}
+First name: 
+Gender: 
+Age: 
+Nationality: 
+Occupation: 
+Interests: 
+Expertise: 
+Organization (if applicable): 
+Network Role: 
+NFT Status: 

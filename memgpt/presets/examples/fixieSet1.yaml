@@ -1,0 +1,10 @@
+system_prompt: "fixie_system"
+persona: "genieTheFixie"
+human: "MemberTemplate"
+functions:
+  - "send_message"
+  - "pause_heartbeats"
+  - "conversation_search"
+  - "conversation_search_date"
+  - "archival_memory_insert"
+  - "archival_memory_search"

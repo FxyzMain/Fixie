@@ -30,12 +30,14 @@ from memgpt.data_types import (
     Token,
     User,
 )
+from memgpt.functions.functions import parse_source_code
+from memgpt.functions.schema_generator import generate_schema
 
 # TODO use custom interface
 from memgpt.interface import AgentInterface  # abstract
 from memgpt.interface import CLIInterface  # for printing to terminal
 from memgpt.log import get_logger
-from memgpt.memory import BaseMemory
+from memgpt.memory import BaseMemory, get_memory_functions
 from memgpt.metadata import MetadataStore
 from memgpt.models.chat_completion_response import UsageStatistics
 from memgpt.models.pydantic_models import (
@@ -215,7 +217,7 @@ class SyncServer(LockingServer):
 
         # Initialize the connection to the DB
         self.config = MemGPTConfig.load()
-        logger.info(f"loading configuration from '{self.config.config_path}'")
+        logger.debug(f"loading configuration from '{self.config.config_path}'")
         assert self.config.persona is not None, "Persona must be set in the config"
         assert self.config.human is not None, "Human must be set in the config"
 
@@ -278,8 +280,9 @@ class SyncServer(LockingServer):
         else:
             self.ms.create_user(user)
 
-        # add global default tools
-        presets.add_default_tools(None, self.ms)
+        # add global default tools (for admin)
+        presets.add_default_tools(user_id, self.ms)
+        presets.add_default_humans_and_personas(user_id, self.ms)
 
     def save_agents(self):
         """Saves all the agents that are in the in-memory object store"""
@@ -650,7 +653,7 @@ class SyncServer(LockingServer):
             message.created_at = timestamp
 
         # Run the agent state forward
-        return self._step(user_id=user_id, agent_id=agent_id, input_message=packaged_system_message)
+        return self._step(user_id=user_id, agent_id=agent_id, input_message=packaged_system_message, timestamp=timestamp)
 
     # @LockingServer.agent_lock_decorator
     def run_command(self, user_id: uuid.UUID, agent_id: uuid.UUID, command: str) -> Union[MemGPTUsageStatistics, None]:
@@ -692,6 +695,7 @@ class SyncServer(LockingServer):
 
         # add default for the user
         presets.add_default_humans_and_personas(user.id, self.ms)
+        presets.add_default_tools(None, self.ms)
 
         return user
 
@@ -741,6 +745,25 @@ class SyncServer(LockingServer):
                 assert tool_obj, f"Tool {tool_name} does not exist"
                 tool_objs.append(tool_obj)
 
+            # make sure memory tools are added
+            # TODO: remove this - eventually memory tools need to be added when the memory is created
+            # this is duplicated with logic on the client-side
+
+            memory_functions = get_memory_functions(memory)
+            for func_name, func in memory_functions.items():
+                if func_name in tools:
+                    # tool already added
+                    continue
+                source_code = parse_source_code(func)
+                json_schema = generate_schema(func, func_name)
+                source_type = "python"
+                tags = ["memory", "memgpt-base"]
+                tool = self.create_tool(
+                    user_id=user_id, json_schema=json_schema, source_code=source_code, source_type=source_type, tags=tags, exists_ok=True
+                )
+                tool_objs.append(tool)
+                tools.append(tool.name)
+
             # TODO: add metadata
             agent_state = AgentState(
                 name=name,
@@ -782,6 +805,8 @@ class SyncServer(LockingServer):
         user_id: uuid.UUID,
         agent_id: uuid.UUID,
     ):
+        # TODO: delete agent data
+
         if self.ms.get_user(user_id=user_id) is None:
             raise ValueError(f"User user_id={user_id} does not exist")
         if self.ms.get_agent(agent_id=agent_id, user_id=user_id) is None:
@@ -844,8 +869,19 @@ class SyncServer(LockingServer):
         }
         return agent_config
 
-    # TODO make return type pydantic
     def list_agents(
+        self,
+        user_id: uuid.UUID,
+    ) -> List[AgentState]:
+        """List all available agents to a user"""
+        if self.ms.get_user(user_id=user_id) is None:
+            raise ValueError(f"User user_id={user_id} does not exist")
+
+        agents_states = self.ms.list_agents(user_id=user_id)
+        return agents_states
+
+    # TODO make return type pydantic
+    def list_agents_legacy(
         self,
         user_id: uuid.UUID,
     ) -> dict:
@@ -859,7 +895,7 @@ class SyncServer(LockingServer):
         # TODO add a get_message_obj_from_message_id(...) function
         #      this would allow grabbing Message.created_by without having to load the agent object
         # all_available_tools = self.ms.list_tools(user_id=user_id) # TODO: add back when user-specific
-        all_available_tools = self.ms.list_tools()
+        self.ms.list_tools()
 
         for agent_state, return_dict in zip(agents_states, agents_states_dicts):
 
@@ -877,7 +913,14 @@ class SyncServer(LockingServer):
             # Add information about tools
             # TODO memgpt_agent should really have a field of List[ToolModel]
             #      then we could just pull that field and return it here
-            return_dict["tools"] = [tool for tool in all_available_tools if tool.json_schema in memgpt_agent.functions]
+            # return_dict["tools"] = [tool for tool in all_available_tools if tool.json_schema in memgpt_agent.functions]
+
+            # get tool info from agent state
+            tools = []
+            for tool_name in agent_state.tools:
+                tool = self.ms.get_tool(tool_name, user_id)
+                tools.append(tool)
+            return_dict["tools"] = tools
 
             # Add information about memory (raw core, size of recall, size of archival)
             core_memory = memgpt_agent.memory
@@ -1161,12 +1204,18 @@ class SyncServer(LockingServer):
         # TODO: mark what is in-context versus not
         return cursor, json_records
 
-    def get_agent_config(self, user_id: uuid.UUID, agent_id: uuid.UUID) -> AgentState:
+    def get_agent_config(self, user_id: uuid.UUID, agent_id: Optional[uuid.UUID], agent_name: Optional[str] = None) -> AgentState:
         """Return the config of an agent"""
         if self.ms.get_user(user_id=user_id) is None:
             raise ValueError(f"User user_id={user_id} does not exist")
-        if self.ms.get_agent(agent_id=agent_id, user_id=user_id) is None:
-            raise ValueError(f"Agent agent_id={agent_id} does not exist")
+        if agent_id:
+            if self.ms.get_agent(agent_id=agent_id, user_id=user_id) is None:
+                raise ValueError(f"Agent agent_id={agent_id} does not exist")
+        else:
+            agent_state = self.ms.get_agent(agent_name=agent_name, user_id=user_id)
+            if agent_state is None:
+                raise ValueError(f"Agent agent_name={agent_name} does not exist")
+            agent_id = agent_state.id
 
         # Get the agent object (loaded in memory)
         memgpt_agent = self._get_or_load_agent(user_id=user_id, agent_id=agent_id)
@@ -1185,15 +1234,19 @@ class SyncServer(LockingServer):
         # TODO: do we need a seperate server config?
         base_config = vars(self.config)
         clean_base_config = clean_keys(base_config)
-        clean_base_config["default_llm_config"] = vars(clean_base_config["default_llm_config"])
-        clean_base_config["default_embedding_config"] = vars(clean_base_config["default_embedding_config"])
+
+        clean_base_config_default_llm_config_dict = vars(clean_base_config["default_llm_config"])
+        clean_base_config_default_embedding_config_dict = vars(clean_base_config["default_embedding_config"])
+
+        clean_base_config["default_llm_config"] = clean_base_config_default_llm_config_dict
+        clean_base_config["default_embedding_config"] = clean_base_config_default_embedding_config_dict
         response = {"config": clean_base_config}
 
         if include_defaults:
             default_config = vars(MemGPTConfig())
             clean_default_config = clean_keys(default_config)
-            clean_default_config["default_llm_config"] = vars(clean_default_config["default_llm_config"])
-            clean_default_config["default_embedding_config"] = vars(clean_default_config["default_embedding_config"])
+            clean_default_config["default_llm_config"] = clean_base_config_default_llm_config_dict
+            clean_default_config["default_embedding_config"] = clean_base_config_default_embedding_config_dict
             response["defaults"] = clean_default_config
 
         return response
@@ -1322,16 +1375,30 @@ class SyncServer(LockingServer):
         token = self.ms.create_api_key(user_id=user_id)
         return token
 
-    def create_source(self, name: str, user_id: uuid.UUID) -> Source:  # TODO: add other fields
+    def create_source(self, name: str, user_id: uuid.UUID, description: str = None) -> Source:  # TODO: add other fields
         """Create a new data source"""
         source = Source(
             name=name,
             user_id=user_id,
+            description=description,
             embedding_model=self.config.default_embedding_config.embedding_model,
             embedding_dim=self.config.default_embedding_config.embedding_dim,
         )
         self.ms.create_source(source)
         assert self.ms.get_source(source_name=name, user_id=user_id) is not None, f"Failed to create source {name}"
+        return source
+
+    def update_source(self, source_id: uuid.UUID, name: str, user_id: uuid.UUID, description: str = None) -> Source:
+        """Updates a data source"""
+        source = Source(
+            id=source_id,
+            name=name,
+            user_id=user_id,
+            description=description,
+            embedding_model=self.config.default_embedding_config.embedding_model,
+            embedding_dim=self.config.default_embedding_config.embedding_dim,
+        )
+        self.ms.update_source(source)
         return source
 
     def delete_source(self, source_id: uuid.UUID, user_id: uuid.UUID):
@@ -1422,7 +1489,7 @@ class SyncServer(LockingServer):
         sources = [
             SourceModel(
                 name=source.name,
-                description=None,  # TODO: actually store descriptions
+                description=source.description,
                 user_id=source.user_id,
                 id=source.id,
                 embedding_config=self.server_embedding_config,
@@ -1483,26 +1550,32 @@ class SyncServer(LockingServer):
         Returns:
             tool (ToolModel): Tool object
         """
-        name = json_schema["name"]
-        tool = self.ms.get_tool(name, user_id=user_id)
-        if tool:  # check if function already exists
+
+        if tags and "memory" in tags:
+            # special modifications to memory functions
+            # self.memory -> self.memory.memory, since Agent.memory.memory needs to be modified (not BaseMemory.memory)
+            source_code = source_code.replace("self.memory", "self.memory.memory")
+
+        # check if already exists:
+        tool_name = json_schema["name"]
+        existing_tool = self.ms.get_tool(tool_name, user_id)
+        if existing_tool:
             if exists_ok:
                 # update existing tool
-                tool.json_schema = json_schema
-                tool.tags = tags
-                tool.source_code = source_code
-                tool.source_type = source_type
-                self.ms.update_tool(tool)
+                existing_tool.source_code = source_code
+                existing_tool.source_type = source_type
+                existing_tool.tags = tags
+                existing_tool.json_schema = json_schema
+                self.ms.update_tool(existing_tool)
+                return self.ms.get_tool(tool_name, user_id)
             else:
-                raise ValueError(f"[server] Tool with name {name} already exists.")
-        else:
-            # create new tool
-            tool = ToolModel(
-                name=name, json_schema=json_schema, tags=tags, source_code=source_code, source_type=source_type, user_id=user_id
-            )
-            self.ms.add_tool(tool)
+                raise ValueError(f"Tool {tool_name} already exists and update=False")
 
-        return self.ms.get_tool(name, user_id=user_id)
+        tool = ToolModel(
+            name=tool_name, source_code=source_code, source_type=source_type, tags=tags, json_schema=json_schema, user_id=user_id
+        )
+        self.ms.add_tool(tool)
+        return self.ms.get_tool(tool_name, user_id)
 
     def delete_tool(self, name: str):
         """Delete a tool"""

@@ -166,7 +166,7 @@ class AbstractClient(object):
         """List all humans."""
         raise NotImplementedError
 
-    def create_human(self, name: str, human: str):
+    def create_human(self, name: str, text: str):
         """Create a human."""
         raise NotImplementedError
 
@@ -174,7 +174,7 @@ class AbstractClient(object):
         """List all personas."""
         raise NotImplementedError
 
-    def create_persona(self, name: str, persona: str):
+    def create_persona(self, name: str, text: str):
         """Create a persona."""
         raise NotImplementedError
 
@@ -260,6 +260,8 @@ class RESTClient(AbstractClient):
         llm_config: Optional[LLMConfig] = None,
         # memory
         memory: BaseMemory = ChatMemory(human=get_human_text(DEFAULT_HUMAN), persona=get_human_text(DEFAULT_PERSONA)),
+        # system prompt (can be templated)
+        system_prompt: Optional[str] = None,
         # tools
         tools: Optional[List[str]] = None,
         include_base_tools: Optional[bool] = True,
@@ -298,6 +300,7 @@ class RESTClient(AbstractClient):
             "config": {
                 "name": name,
                 "preset": preset,
+                "system": system_prompt,
                 "persona": memory.memory["persona"].value,
                 "human": memory.memory["human"].value,
                 "function_names": tool_names,
@@ -498,8 +501,8 @@ class RESTClient(AbstractClient):
         response = requests.get(f"{self.base_url}/api/humans", headers=self.headers)
         return ListHumansResponse(**response.json())
 
-    def create_human(self, name: str, human: str) -> HumanModel:
-        data = {"name": name, "text": human}
+    def create_human(self, name: str, text: str) -> HumanModel:
+        data = {"name": name, "text": text}
         response = requests.post(f"{self.base_url}/api/humans", json=data, headers=self.headers)
         if response.status_code != 200:
             raise ValueError(f"Failed to create human: {response.text}")
@@ -509,8 +512,8 @@ class RESTClient(AbstractClient):
         response = requests.get(f"{self.base_url}/api/personas", headers=self.headers)
         return ListPersonasResponse(**response.json())
 
-    def create_persona(self, name: str, persona: str) -> PersonaModel:
-        data = {"name": name, "text": persona}
+    def create_persona(self, name: str, text: str) -> PersonaModel:
+        data = {"name": name, "text": text}
         response = requests.post(f"{self.base_url}/api/personas", json=data, headers=self.headers)
         if response.status_code != 200:
             raise ValueError(f"Failed to create persona: {response.text}")
@@ -700,9 +703,13 @@ class LocalClient(AbstractClient):
 
     # agents
 
-    def list_agents(self):
+    def list_agents(self) -> List[AgentState]:
         self.interface.clear()
-        return self.server.list_agents(user_id=self.user_id)
+
+        # TODO: fix the server function
+        # return self.server.list_agents(user_id=self.user_id)
+
+        return self.server.ms.list_agents(user_id=self.user_id)
 
     def agent_exists(self, agent_id: Optional[str] = None, agent_name: Optional[str] = None) -> bool:
         if not (agent_id or agent_name):
@@ -711,9 +718,9 @@ class LocalClient(AbstractClient):
             raise ValueError(f"Only one of agent_id or agent_name can be provided")
         existing = self.list_agents()
         if agent_id:
-            return agent_id in [agent["id"] for agent in existing["agents"]]
+            return str(agent_id) in [str(agent.id) for agent in existing]
         else:
-            return agent_name in [agent["name"] for agent in existing["agents"]]
+            return agent_name in [str(agent.name) for agent in existing]
 
     def create_agent(
         self,
@@ -723,6 +730,8 @@ class LocalClient(AbstractClient):
         llm_config: Optional[LLMConfig] = None,
         # memory
         memory: BaseMemory = ChatMemory(human=get_human_text(DEFAULT_HUMAN), persona=get_human_text(DEFAULT_PERSONA)),
+        # system prompt (can be templated)
+        system_prompt: Optional[str] = None,
         # tools
         tools: Optional[List[str]] = None,
         include_base_tools: Optional[bool] = True,
@@ -752,6 +761,7 @@ class LocalClient(AbstractClient):
             user_id=self.user_id,
             name=name,
             memory=memory,
+            system=system_prompt,
             llm_config=llm_config,
             embedding_config=embedding_config,
             tools=tool_names,
@@ -767,9 +777,12 @@ class LocalClient(AbstractClient):
     def delete_agent(self, agent_id: uuid.UUID):
         self.server.delete_agent(user_id=self.user_id, agent_id=agent_id)
 
-    def get_agent(self, agent_id: uuid.UUID) -> AgentState:
+    def get_agent_config(self, agent_id: uuid.UUID) -> AgentState:
         self.interface.clear()
         return self.server.get_agent_config(user_id=self.user_id, agent_id=agent_id)
+
+    def get_agent(self, agent_id: Optional[uuid.UUID] = None, agent_name: Optional[str] = None):
+        return self.server.ms.get_agent(user_id=self.user_id, agent_id=agent_id, agent_name=agent_name)
 
     # presets
     def create_preset(self, preset: Preset) -> Preset:
@@ -795,7 +808,19 @@ class LocalClient(AbstractClient):
 
     # agent interactions
 
-    def send_message(self, agent_id: uuid.UUID, message: str, role: str, stream: Optional[bool] = False) -> UserMessageResponse:
+    def send_message(
+        self,
+        message: str,
+        role: str,
+        agent_id: Optional[uuid.UUID] = None,
+        agent_name: Optional[str] = None,
+        stream: Optional[bool] = False,
+    ) -> UserMessageResponse:
+        if not agent_id:
+            assert agent_name, f"Either agent_id or agent_name must be provided"
+            agent_state = self.get_agent(agent_name=agent_name)
+            agent_id = agent_state.id
+
         if stream:
             # TODO: implement streaming with stream=True/False
             raise NotImplementedError
@@ -811,7 +836,7 @@ class LocalClient(AbstractClient):
         else:
             return UserMessageResponse(messages=self.interface.to_list(), usage=usage)
 
-    def user_message(self, agent_id: str, message: str) -> Union[List[Dict], Tuple[List[Dict], int]]:
+    def user_message(self, agent_id: str, message: str) -> UserMessageResponse:
         self.interface.clear()
         usage = self.server.user_message(user_id=self.user_id, agent_id=agent_id, message=message)
         if self.auto_save:
@@ -830,11 +855,11 @@ class LocalClient(AbstractClient):
 
     # humans / personas
 
-    def create_human(self, name: str, human: str):
-        return self.server.add_human(HumanModel(name=name, text=human, user_id=self.user_id))
+    def create_human(self, name: str, text: str):
+        return self.server.add_human(HumanModel(name=name, text=text, user_id=self.user_id))
 
-    def create_persona(self, name: str, persona: str):
-        return self.server.add_persona(PersonaModel(name=name, text=persona, user_id=self.user_id))
+    def create_persona(self, name: str, text: str):
+        return self.server.add_persona(PersonaModel(name=name, text=text, user_id=self.user_id))
 
     def list_humans(self):
         return self.server.list_humans(user_id=self.user_id if self.user_id else self.user_id)
@@ -842,8 +867,10 @@ class LocalClient(AbstractClient):
     def get_human(self, name: str):
         return self.server.get_human(name=name, user_id=self.user_id)
 
-    def update_human(self, human: HumanModel):
-        return self.server.update_human(human=human)
+    def update_human(self, name: str, text: str):
+        human = self.get_human(name)
+        human.text = text
+        return self.server.update_human(human)
 
     def delete_human(self, name: str):
         return self.server.delete_human(name, self.user_id)
@@ -854,8 +881,10 @@ class LocalClient(AbstractClient):
     def get_persona(self, name: str):
         return self.server.get_persona(name=name, user_id=self.user_id)
 
-    def update_persona(self, persona: PersonaModel):
-        return self.server.update_persona(persona=persona)
+    def update_persona(self, name: str, text: str):
+        persona = self.get_persona(name)
+        persona.text = text
+        return self.server.update_persona(persona)
 
     def delete_persona(self, name: str):
         return self.server.delete_persona(name, self.user_id)
@@ -888,30 +917,16 @@ class LocalClient(AbstractClient):
         source_type = "python"
         tool_name = json_schema["name"]
 
-        if "memory" in tags:
-            # special modifications to memory functions
-            # self.memory -> self.memory.memory, since Agent.memory.memory needs to be modified (not BaseMemory.memory)
-            source_code = source_code.replace("self.memory", "self.memory.memory")
+        assert name is None or name == tool_name, f"Tool name {name} does not match schema name {tool_name}"
 
-        # check if already exists:
-        existing_tool = self.server.ms.get_tool(tool_name, self.user_id)
-        if existing_tool:
-            if update:
-                # update existing tool
-                existing_tool.source_code = source_code
-                existing_tool.source_type = source_type
-                existing_tool.tags = tags
-                existing_tool.json_schema = json_schema
-                self.server.ms.update_tool(existing_tool)
-                return self.server.ms.get_tool(tool_name, self.user_id)
-            else:
-                raise ValueError(f"Tool {name} already exists and update=False")
-
-        tool = ToolModel(
-            name=tool_name, source_code=source_code, source_type=source_type, tags=tags, json_schema=json_schema, user_id=self.user_id
+        return self.server.create_tool(
+            user_id=self.user_id,
+            source_code=source_code,
+            source_type=source_type,
+            tags=tags,
+            json_schema=json_schema,
+            exists_ok=update,
         )
-        self.server.ms.add_tool(tool)
-        return self.server.ms.get_tool(tool_name, self.user_id)
 
     def list_tools(self):
         """List available tools.
@@ -934,10 +949,20 @@ class LocalClient(AbstractClient):
         self.server.load_data(user_id=self.user_id, connector=connector, source_name=source_name)
 
     def create_source(self, name: str):
-        self.server.create_source(user_id=self.user_id, name=name)
+        return self.server.create_source(user_id=self.user_id, name=name)
+
+    def delete_source(self, source_id: Optional[uuid.UUID] = None, source_name: Optional[str] = None):
+        # TODO: delete source data
+        self.server.delete_source(user_id=self.user.id, source_id=source_id, source_name=source_name)
+
+    def get_source(self, source_id: Optional[uuid.UUID] = None, source_name: Optional[str] = None):
+        return self.server.ms.get_source(user_id=self.user_id, source_id=source_id, source_name=source_name)
 
     def attach_source_to_agent(self, source_id: uuid.UUID, agent_id: uuid.UUID):
         self.server.attach_source_to_agent(user_id=self.user_id, source_id=source_id, agent_id=agent_id)
+
+    def list_sources(self):
+        return self.server.list_all_sources(user_id=self.user_id)
 
     def get_agent_archival_memory(
         self, agent_id: uuid.UUID, before: Optional[uuid.UUID] = None, after: Optional[uuid.UUID] = None, limit: Optional[int] = 1000
@@ -983,3 +1008,6 @@ class LocalClient(AbstractClient):
         )
 
         return ListModelsResponse(models=[llm_config])
+
+    def list_attached_sources(self, agent_id: uuid.UUID):
+        return self.server.list_attached_sources(agent_id=agent_id)
