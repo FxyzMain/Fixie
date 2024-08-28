@@ -1,6 +1,5 @@
 import datetime
 import inspect
-import json
 import traceback
 from typing import List, Literal, Optional, Tuple, Union
 
@@ -11,8 +10,6 @@ from memgpt.constants import (
     CLI_WARNING_PREFIX,
     FIRST_MESSAGE_ATTEMPTS,
     IN_CONTEXT_MEMORY_KEYWORD,
-    JSON_ENSURE_ASCII,
-    JSON_LOADS_STRICT,
     LLM_MAX_TOKENS,
     MESSAGE_SUMMARY_TRUNC_KEEP_N_LAST,
     MESSAGE_SUMMARY_TRUNC_TOKEN_FRAC,
@@ -44,6 +41,8 @@ from memgpt.utils import (
     get_tool_call_id,
     get_utc_time,
     is_utc_datetime,
+    json_dumps,
+    json_loads,
     parse_json,
     printd,
     united_diff,
@@ -108,7 +107,7 @@ def compile_system_message(
             archival_memory=archival_memory,
             recall_memory=recall_memory,
         )
-        full_memory_string = memory_metadata_string + "\n" + str(in_context_memory)
+        full_memory_string = memory_metadata_string + "\n" + in_context_memory.compile()
 
         # Add to the variables list to inject
         variables[IN_CONTEXT_MEMORY_KEYWORD] = full_memory_string
@@ -217,7 +216,7 @@ class Agent(object):
         # Initialize the memory object
         self.memory = self.agent_state.memory
         assert isinstance(self.memory, Memory), f"Memory object is not of type Memory: {type(self.memory)}"
-        printd("Initialized memory object", self.memory)
+        printd("Initialized memory object", self.memory.compile())
 
         # Interface must implement:
         # - internal_monologue
@@ -654,12 +653,12 @@ class Agent(object):
         def strip_name_field_from_user_message(user_message_text: str) -> Tuple[str, Optional[str]]:
             """If 'name' exists in the JSON string, remove it and return the cleaned text + name value"""
             try:
-                user_message_json = dict(json.loads(user_message_text, strict=JSON_LOADS_STRICT))
+                user_message_json = dict(json_loads(user_message_text))
                 # Special handling for AutoGen messages with 'name' field
                 # Treat 'name' as a special field
                 # If it exists in the input message, elevate it to the 'message' level
                 name = user_message_json.pop("name", None)
-                clean_message = json.dumps(user_message_json, ensure_ascii=JSON_ENSURE_ASCII)
+                clean_message = json_dumps(user_message_json)
 
             except Exception as e:
                 print(f"{CLI_WARNING_PREFIX}handling of 'name' field failed with: {e}")
@@ -668,8 +667,8 @@ class Agent(object):
 
         def validate_json(user_message_text: str, raise_on_error: bool) -> str:
             try:
-                user_message_json = dict(json.loads(user_message_text, strict=JSON_LOADS_STRICT))
-                user_message_json_val = json.dumps(user_message_json, ensure_ascii=JSON_ENSURE_ASCII)
+                user_message_json = dict(json_loads(user_message_text))
+                user_message_json_val = json_dumps(user_message_json)
                 return user_message_json_val
             except Exception as e:
                 print(f"{CLI_WARNING_PREFIX}couldn't parse user input message as JSON: {e}")
@@ -993,7 +992,7 @@ class Agent(object):
         curr_system_message = self.messages[0]  # this is the system + memory bank, not just the system prompt
 
         # NOTE: This is a hacky way to check if the memory has changed
-        memory_repr = str(self.memory)
+        memory_repr = self.memory.compile()
         if not force and memory_repr == curr_system_message["content"][-(len(memory_repr)) :]:
             printd(f"Memory has not changed, not rebuilding system")
             return
@@ -1018,7 +1017,7 @@ class Agent(object):
                     printd(f"skipping block update, unexpected value: {block_id=}")
                     continue
                 # TODO: we may want to update which columns we're updating from shared memory e.g. the limit
-                self.memory.update_block_value(name=block.get("name", ""), value=db_block.value)
+                self.memory.update_block_value(name=block.get("label", ""), value=db_block.value)
 
         # If the memory didn't update, we probably don't want to update the timestamp inside
         # For example, if we're doing a system prompt swap, this should probably be False

@@ -104,7 +104,7 @@ def test_memory(client, agent):
     # _reset_config()
 
     memory_response = client.get_in_context_memory(agent_id=agent.id)
-    print("MEMORY", memory_response)
+    print("MEMORY", memory_response.compile())
 
     updated_memory = {"human": "Updated human memory", "persona": "Updated persona memory"}
     client.update_in_context_memory(agent_id=agent.id, section="human", value=updated_memory["human"])
@@ -280,6 +280,11 @@ def test_sources(client, agent):
 
     # attach a source
     client.attach_source_to_agent(source_id=source.id, agent_id=agent.id)
+
+    # list attached sources
+    attached_sources = client.list_attached_sources(agent_id=agent.id)
+    print("attached sources", attached_sources)
+    assert source.id in [s.id for s in attached_sources], f"Attached sources: {attached_sources}"
 
     # list archival memory
     archival_memories = client.get_archival_memory(agent_id=agent.id)
